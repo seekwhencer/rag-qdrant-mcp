@@ -1,0 +1,196 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "settings": "Settings",
+    "logs": "Logs",
+    "about": "About"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "Live system status",
+    "live": "Live",
+    "offline": "Offline",
+    "updated": "Updated",
+    "loading": "Loading…",
+    "error": "Could not connect to the dashboard stream.",
+    "mcp": {
+      "title": "MCP",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "connected": "connected",
+      "none": "No systems connected.",
+      "unknown": "Unknown client",
+      "requests": "requests"
+    },
+    "qdrant": {
+      "title": "Qdrant",
+      "status": "Status",
+      "reachable": "Reachable",
+      "unreachable": "Unreachable",
+      "endpoint": "Endpoint",
+      "collection": "Collection",
+      "version": "Version",
+      "points": "Points"
+    },
+    "server": {
+      "title": "Server",
+      "uptime": "Uptime",
+      "memory": "Memory (heap)",
+      "node": "Node.js",
+      "platform": "Platform",
+      "logs": "Log lines",
+      "errors": "errors"
+    },
+    "models": {
+      "title": "Models",
+      "embeddings": "Embeddings",
+      "chat": "Chat"
+    }
+  },
+  "pages": {
+    "logs": {
+      "title": "Logs",
+      "subtitle": "Live server log stream",
+      "live": "Live",
+      "offline": "Offline",
+      "levelFilter": "Filter by level",
+      "levelAll": "ALL",
+      "search": "Search logs…",
+      "pause": "Pause",
+      "resume": "Resume",
+      "clear": "Clear",
+      "empty": "No log entries yet.",
+      "error": "Could not connect to the log stream.",
+      "jumpToLatest": "Jump to latest"
+    }
+  },
+  "theme": {
+    "toggle": "Toggle light/dark theme"
+  },
+  "language": {
+    "label": "Language"
+  },
+  "settings": {
+    "title": "Settings",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "reset": "Reset",
+    "uiHint": "Applied immediately and saved locally",
+    "loading": "Loading…",
+    "envLocked": "Set via environment variable ({{env}}) – not editable",
+    "categories": {
+      "server": "Server",
+      "qdrant": "Qdrant",
+      "embeddings": "Embeddings",
+      "chat": "Chat",
+      "mcp": "MCP",
+      "ui": "UI"
+    },
+    "server": {
+      "title": "Server",
+      "port": "Server port",
+      "portHint": "Changes require a restart.",
+      "verbose": "Verbose logging",
+      "verboseHint": "More detailed server logs.",
+      "searchTopK": "Search top-K",
+      "searchTopKHint": "Number of results returned by search."
+    },
+    "qdrant": {
+      "title": "Qdrant",
+      "url": "Qdrant URL",
+      "urlHint": "Base URL of the Qdrant server (e.g. http://localhost).",
+      "port": "Qdrant port",
+      "collection": "Collection",
+      "collectionHint": "Name of the Qdrant collection to search."
+    },
+    "embeddings": {
+      "title": "Embeddings",
+      "api": "API (openai/ollama)",
+      "url": "URL",
+      "urlHint": "OpenAI-compatible API URL (for openai).",
+      "host": "Host",
+      "hostHint": "Ollama host (for ollama).",
+      "model": "Model"
+    },
+    "chat": {
+      "title": "Chat",
+      "api": "API (openai/ollama)",
+      "url": "URL",
+      "urlHint": "OpenAI-compatible API URL (for openai).",
+      "model": "Model",
+      "systemPrompt": "System prompt",
+      "systemPromptHint": "The system prompt prepended to every chat request."
+    },
+    "mcp": {
+      "title": "MCP",
+      "enabled": "Enabled",
+      "path": "Path",
+      "pathHint": "MCP endpoint path (must start with /).",
+      "allowedHosts": "Allowed hosts",
+      "allowedHostsHint": "Comma-separated list of allowed MCP hosts.",
+      "allowedHostsPlaceholder": "e.g. localhost, 192.168.1.10"
+    },
+    "ui": {
+      "title": "UI"
+    },
+    "fields": {
+      "radiusFactor": "Roundness",
+      "primaryHue": "Primary color",
+      "secondaryHue": "Secondary color"
+    }
+  },
+  "about": {
+    "title": "About",
+    "hero": {
+      "name": "rag-qdrant-mcp",
+      "role": "RAG + Qdrant + MCP",
+      "intro1": "Semantic search over your documents, powered by local LLMs and Qdrant. Exposed as an MCP server for AI assistants.",
+      "intro2": "Self-hosted, no cloud, no API keys required. Configure your Qdrant collection, embedding model, and chat model in the settings."
+    },
+    "features": {
+      "title": "Features",
+      "items": [
+        {
+          "title": "Semantic Search",
+          "desc": "Vector search over your documents using Qdrant and local embedding models."
+        },
+        {
+          "title": "RAG Chat",
+          "desc": "Ask questions and get answers grounded in your documents, powered by local LLMs."
+        },
+        {
+          "title": "MCP Server",
+          "desc": "Expose search and ask tools via the Model Context Protocol for AI assistants."
+        },
+        {
+          "title": "Self-Hosted",
+          "desc": "Runs entirely on your hardware. No cloud, no API keys, no data leaves your network."
+        }
+      ]
+    },
+    "stack": {
+      "title": "Tech Stack",
+      "items": [
+        "Node.js",
+        "Express",
+        "React",
+        "Vite",
+        "Qdrant",
+        "Ollama",
+        "llama.cpp",
+        "MCP",
+        "Docker"
+      ]
+    },
+    "contact": {
+      "title": "Get in touch",
+      "links": [
+        {
+          "label": "GitHub",
+          "url": "https://github.com"
+        }
+      ]
+    }
+  }
+}

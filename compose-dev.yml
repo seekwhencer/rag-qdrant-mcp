@@ -1,0 +1,19 @@
+services:
+  rag-qdrant-mcp:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: rag-qdrant-mcp
+    restart: unless-stopped
+    command: ["npm", "run", "dev"]
+    working_dir: /app/server
+    ports:
+      - ${SERVER_PORT}:${SERVER_PORT}
+    volumes:
+      - ./:/app
+      - /app/server/node_modules
+      - /app/frontend/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_WS_PORT=${SERVER_PORT}
+      - SERVER_PORT=${SERVER_PORT}

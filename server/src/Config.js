@@ -1,0 +1,359 @@
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Qdrant-Parameter (Vektordatenbank).
+ *
+ * Jede Zeile:
+ *   env     – Umgebungsvariable, die den Wert überschreibt
+ *   type    – 'string' | 'integer'
+ *   default – Standardwert (wird in config.json geschrieben)
+ *
+ * Die Reihenfolge bestimmt die Reihenfolge in der UI.
+ */
+const QDRANT_PARAMS = {
+    url: { env: 'QDRANT_URL', type: 'string', default: '' },
+    port: { env: 'QDRANT_PORT', type: 'integer', default: 80 },
+    collection: { env: 'QDRANT_COLLECTION', type: 'string', default: 'research' },
+};
+
+/**
+ * Embeddings-Parameter (OpenAI-kompatible API / Ollama).
+ */
+const EMBEDDINGS_PARAMS = {
+    api: { env: 'EMBEDDINGS_API', type: 'string', default: 'ollama' },
+    url: { env: 'EMBEDDINGS_URL', type: 'string', default: '' },
+    host: { env: 'EMBEDDINGS_HOST', type: 'string', default: '' },
+    model: { env: 'EMBEDDINGS_MODEL', type: 'string', default: 'nomic-embed-text' },
+};
+
+/**
+ * Chat-Parameter (OpenAI-kompatible API / Ollama).
+ */
+const CHAT_PARAMS = {
+    api: { env: 'CHAT_API', type: 'string', default: 'ollama' },
+    url: { env: 'CHAT_URL', type: 'string', default: '' },
+    model: { env: 'CHAT_MODEL', type: 'string', default: '' },
+    systemPrompt: {
+        env: 'LLM_SYSTEM_PROMPT',
+        type: 'string',
+        default: "You are a helpful research assistant. Answer in markdown format the user's question precisely and full, based solely on the following context:"
+    },
+};
+
+/**
+ * MCP-Parameter (Model Context Protocol).
+ */
+const MCP_PARAMS = {
+    enabled: { env: 'MCP_ENABLED', type: 'boolean', default: true },
+    path: { env: 'MCP_PATH', type: 'string', default: '/mcp' },
+    allowedHosts: { env: 'MCP_ALLOWED_HOSTS', type: 'array', default: [] },
+};
+
+/**
+ * Loads and manages server configuration from environment variables and a config.json file.
+ */
+class Config {
+    /** @type {Record<string, string | number>} */
+    static defaults = {
+        serverPort: 3000,
+        verbose: false,
+        searchTopK: 10
+    };
+
+    /** Keys, die ohne Neustart wirksam werden. */
+    static runtimeKeys = ['verbose', 'searchTopK', 'qdrant', 'embeddings', 'chat', 'mcp'];
+
+    /** Keys, die einen Neustart erfordern. */
+    static restartKeys = ['serverPort'];
+
+    constructor(env = process.env, logger) {
+        this.env = env;
+        this.configPath = this.resolvePath();
+        this.label = '[Config]';
+        this.logger = logger || { log: () => {}, error: () => {} };
+
+        const loaded = existsSync(this.configPath) ? this.readConfigFile() : null;
+
+        this.serverPort = parseInt(env.SERVER_PORT, 10) || loaded?.serverPort || Config.defaults.serverPort;
+        this.verbose = env.VERBOSE === 'true' || loaded?.verbose || Config.defaults.verbose;
+        this.searchTopK = parseInt(env.SEARCH_TOP_K, 10) || loaded?.searchTopK || Config.defaults.searchTopK;
+
+        // Env-gelockte Felder: key → Name der Umgebungsvariable.
+        // Diese Werte sind in der UI nicht änderbar (Env hat immer Vorrang).
+        this.envLocked = { root: {}, qdrant: {}, embeddings: {}, chat: {}, mcp: {} };
+        if (parseInt(env.SERVER_PORT, 10)) this.envLocked.root.serverPort = 'SERVER_PORT';
+        if (env.VERBOSE === 'true') this.envLocked.root.verbose = 'VERBOSE';
+        if (parseInt(env.SEARCH_TOP_K, 10)) this.envLocked.root.searchTopK = 'SEARCH_TOP_K';
+
+        // Parameter-Gruppen: env > config.json > Default
+        this.qdrant = this.resolveParams(QDRANT_PARAMS, loaded?.qdrant, 'qdrant');
+        this.embeddings = this.resolveParams(EMBEDDINGS_PARAMS, loaded?.embeddings, 'embeddings');
+        this.chat = this.resolveParams(CHAT_PARAMS, loaded?.chat, 'chat');
+        this.mcp = this.resolveParams(MCP_PARAMS, loaded?.mcp, 'mcp');
+    }
+
+    /**
+     * Resolves the path to the configuration file.
+     * @returns {string}
+     */
+    resolvePath() {
+        return this.env.CONFIG_PATH || join(__dirname, '..', 'config.json');
+    }
+
+    /**
+     * Liest die config.json (defensive: fehlerhafte Datei → null).
+     * @returns {Record<string, unknown> | null}
+     */
+    readConfigFile() {
+        try {
+            return JSON.parse(readFileSync(this.configPath, 'utf8'));
+        } catch (err) {
+            this.logger.error(this.label, 'config.json konnte nicht gelesen werden', { error: err.message });
+            return null;
+        }
+    }
+
+    /**
+     * Parst einen Env-Wert gemäß Typ. Liefert undefined, wenn der Wert leer/ungültig ist.
+     * @param {unknown} raw
+     * @param {string} type
+     * @returns {unknown}
+     */
+    parseEnvValue(raw, type) {
+        if (raw === undefined || raw === null || raw === '') return undefined;
+        switch (type) {
+            case 'boolean':
+                return raw === 'true' || raw === '1';
+            case 'integer': {
+                const n = parseInt(raw, 10);
+                return Number.isNaN(n) ? undefined : n;
+            }
+            case 'number': {
+                const n = parseFloat(raw);
+                return Number.isNaN(n) ? undefined : n;
+            }
+            case 'array': {
+                try {
+                    const parsed = JSON.parse(raw);
+                    return Array.isArray(parsed) ? parsed : undefined;
+                } catch {
+                    // Komma-getrennt → Strings (z. B. Allowed-Hosts)
+                    return String(raw).split(',').map((s) => s.trim()).filter(Boolean);
+                }
+            }
+            case 'object': {
+                try {
+                    const parsed = JSON.parse(raw);
+                    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : undefined;
+                } catch {
+                    return undefined;
+                }
+            }
+            default:
+                return String(raw);
+        }
+    }
+
+    /**
+     * Ermittelt eine Parameter-Gruppe: env > config.json > Default.
+     * @param {Record<string, {env: string, type: string, default: unknown}>} params
+     * @param {Record<string, unknown> | undefined} loadedGroup
+     * @param {string} group
+     * @returns {Record<string, unknown>}
+     */
+    resolveParams(params, loadedGroup, group) {
+        const out = {};
+        for (const [key, spec] of Object.entries(params)) {
+            const fromEnv = this.parseEnvValue(this.env[spec.env], spec.type);
+            if (fromEnv !== undefined) this.envLocked[group][key] = spec.env;
+            const fromFile = loadedGroup?.[key];
+            out[key] =
+                fromEnv !== undefined ? fromEnv
+                    : fromFile !== undefined ? fromFile
+                        : spec.default;
+        }
+        return out;
+    }
+
+    /**
+     * Schreibt die Default-Konfiguration explizit (Setup-Schritt, z. B. --init-config).
+     */
+    saveDefaults() {
+        const defaults = {
+            serverPort: parseInt(this.env.SERVER_PORT, 10) || Config.defaults.serverPort,
+            verbose: this.env.VERBOSE === 'true' || Config.defaults.verbose,
+            searchTopK: parseInt(this.env.SEARCH_TOP_K, 10) || Config.defaults.searchTopK,
+            qdrant: Object.fromEntries(Object.entries(QDRANT_PARAMS).map(([key, spec]) => [key, spec.default])),
+            embeddings: Object.fromEntries(Object.entries(EMBEDDINGS_PARAMS).map(([key, spec]) => [key, spec.default])),
+            chat: Object.fromEntries(Object.entries(CHAT_PARAMS).map(([key, spec]) => [key, spec.default])),
+            mcp: Object.fromEntries(Object.entries(MCP_PARAMS).map(([key, spec]) => [key, spec.default]))
+        };
+        writeFileSync(this.configPath, JSON.stringify(defaults, null, 4), 'utf8');
+    }
+
+    /**
+     * Liefert die aktuellen Settings für die UI.
+     * @returns {Record<string, unknown>}
+     */
+    getSettings() {
+        return {
+            serverPort: this.serverPort,
+            verbose: this.verbose,
+            searchTopK: this.searchTopK,
+            qdrant: { ...this.qdrant },
+            embeddings: { ...this.embeddings },
+            chat: { ...this.chat },
+            mcp: { ...this.mcp },
+            envLocked: {
+                root: { ...this.envLocked.root },
+                qdrant: { ...this.envLocked.qdrant },
+                embeddings: { ...this.envLocked.embeddings },
+                chat: { ...this.envLocked.chat },
+                mcp: { ...this.envLocked.mcp }
+            }
+        };
+    }
+
+    /**
+     * Validiert ein vollständiges Settings-Objekt.
+     * @param {Record<string, unknown>} s
+     * @returns {string[]} Fehlerliste (leer = gültig)
+     */
+    validateSettings(s) {
+        const errors = [];
+        if (!Number.isInteger(s.serverPort) || s.serverPort < 1 || s.serverPort > 65535)
+            errors.push('serverPort muss eine Ganzzahl zwischen 1 und 65535 sein');
+        if (typeof s.verbose !== 'boolean')
+            errors.push('verbose muss ein Boolean sein');
+        if (!Number.isInteger(s.searchTopK) || s.searchTopK < 1)
+            errors.push('searchTopK muss eine Ganzzahl >= 1 sein');
+
+        const q = s.qdrant || {};
+        if (typeof q.url !== 'string') errors.push('qdrant.url muss ein String sein');
+        if (!Number.isInteger(q.port) || q.port < 1 || q.port > 65535)
+            errors.push('qdrant.port muss eine Ganzzahl zwischen 1 und 65535 sein');
+        if (typeof q.collection !== 'string' || q.collection.trim() === '')
+            errors.push('qdrant.collection muss ein nicht-leerer String sein');
+
+        const e = s.embeddings || {};
+        if (typeof e.api !== 'string' || !['openai', 'ollama'].includes(e.api))
+            errors.push('embeddings.api muss "openai" oder "ollama" sein');
+        if (typeof e.url !== 'string') errors.push('embeddings.url muss ein String sein');
+        if (typeof e.host !== 'string') errors.push('embeddings.host muss ein String sein');
+        if (typeof e.model !== 'string') errors.push('embeddings.model muss ein String sein');
+
+        const c = s.chat || {};
+        if (typeof c.api !== 'string' || !['openai', 'ollama'].includes(c.api))
+            errors.push('chat.api muss "openai" oder "ollama" sein');
+        if (typeof c.url !== 'string') errors.push('chat.url muss ein String sein');
+        if (typeof c.model !== 'string') errors.push('chat.model muss ein String sein');
+        if (typeof c.systemPrompt !== 'string') errors.push('chat.systemPrompt muss ein String sein');
+
+        const m = s.mcp || {};
+        if (typeof m.enabled !== 'boolean') errors.push('mcp.enabled muss ein Boolean sein');
+        if (typeof m.path !== 'string' || !m.path.startsWith('/'))
+            errors.push('mcp.path muss ein String mit führendem "/" sein');
+        if (!Array.isArray(m.allowedHosts) || m.allowedHosts.some((h) => typeof h !== 'string'))
+            errors.push('mcp.allowedHosts muss ein Array aus Strings sein');
+
+        return errors;
+    }
+
+    /**
+     * Entfernt Env-gelockte Keys aus einem Patch-Objekt (Env hat immer Vorrang).
+     * @param {Record<string, unknown> | undefined} obj
+     * @param {string} group
+     * @returns {Record<string, unknown>}
+     */
+    stripEnvLocked(obj, group) {
+        if (!obj || typeof obj !== 'object') return {};
+        const locked = this.envLocked[group] || {};
+        const out = {};
+        for (const [k, v] of Object.entries(obj)) {
+            if (Object.prototype.hasOwnProperty.call(locked, k)) continue;
+            out[k] = v;
+        }
+        return out;
+    }
+
+    /**
+     * Wendet einen Partial-Patch an: validieren → mergen → persistieren → klassifizieren.
+     * Env-gelockte Felder werden ignoriert (Env hat immer Vorrang).
+     * @param {Record<string, unknown>} patch
+     * @returns {{ applied: string[], restartRequired: string[] }}
+     */
+    updateSettings(patch) {
+        const current = this.getSettings();
+
+        // Env-gelockte Keys aus dem Patch entfernen (UI sendet ggf. komplette Drafts).
+        const p = { ...patch };
+        for (const k of Object.keys(this.envLocked.root)) delete p[k];
+        p.qdrant = this.stripEnvLocked(patch.qdrant, 'qdrant');
+        p.embeddings = this.stripEnvLocked(patch.embeddings, 'embeddings');
+        p.chat = this.stripEnvLocked(patch.chat, 'chat');
+        p.mcp = this.stripEnvLocked(patch.mcp, 'mcp');
+
+        // Deep-Merge für die verschachtelten Objekte
+        const next = {
+            ...current,
+            ...p,
+            qdrant: { ...current.qdrant, ...(p.qdrant || {}) },
+            embeddings: { ...current.embeddings, ...(p.embeddings || {}) },
+            chat: { ...current.chat, ...(p.chat || {}) },
+            mcp: { ...current.mcp, ...(p.mcp || {}) }
+        };
+
+        const errors = this.validateSettings(next);
+        if (errors.length > 0) {
+            const err = new Error(errors.join('; '));
+            err.status = 400;
+            err.code = 'invalid_settings';
+            throw err;
+        }
+
+        // Runtime-State aktualisieren
+        this.serverPort = next.serverPort;
+        this.verbose = next.verbose;
+        this.searchTopK = next.searchTopK;
+        this.qdrant = { ...next.qdrant };
+        this.embeddings = { ...next.embeddings };
+        this.chat = { ...next.chat };
+        this.mcp = { ...next.mcp };
+
+        // Persistieren (config.json)
+        this.persist();
+
+        const changed = Object.keys(p).filter((k) => JSON.stringify(current[k]) !== JSON.stringify(next[k]));
+        return {
+            applied: changed.filter((k) => Config.runtimeKeys.includes(k)),
+            restartRequired: changed.filter((k) => Config.restartKeys.includes(k))
+        };
+    }
+
+    /** Schreibt die aktuellen Settings nach config.json. */
+    persist() {
+        writeFileSync(
+            this.configPath,
+            JSON.stringify(
+                {
+                    serverPort: this.serverPort,
+                    verbose: this.verbose,
+                    searchTopK: this.searchTopK,
+                    qdrant: this.qdrant,
+                    embeddings: this.embeddings,
+                    chat: this.chat,
+                    mcp: this.mcp
+                },
+                null,
+                4
+            ),
+            'utf8'
+        );
+    }
+}
+
+export { Config, QDRANT_PARAMS, EMBEDDINGS_PARAMS, CHAT_PARAMS, MCP_PARAMS };

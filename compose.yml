@@ -1,0 +1,28 @@
+services:
+  rag-qdrant-mcp:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: rag-qdrant-mcp
+    restart: unless-stopped
+    working_dir: /app/server
+    environment:
+      - NODE_ENV=production
+      - SERVER_PORT=${SERVER_PORT}
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_PORT=${QDRANT_PORT}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION}
+      - SEARCH_TOP_K=${SEARCH_TOP_K}
+      - EMBEDDINGS_API=${EMBEDDINGS_API}
+      - EMBEDDINGS_URL=${EMBEDDINGS_URL}
+      - EMBEDDINGS_HOST=${EMBEDDINGS_HOST}
+      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL}
+      - CHAT_API=${CHAT_API}
+      - CHAT_URL=${CHAT_URL}
+      - CHAT_MODEL=${CHAT_MODEL}
+      - LLM_SYSTEM_PROMPT=${LLM_SYSTEM_PROMPT}
+      - MCP_ENABLED=${MCP_ENABLED}
+      - MCP_PATH=${MCP_PATH}
+      - MCP_ALLOWED_HOSTS=${MCP_ALLOWED_HOSTS}
+    ports:
+      - "${SERVER_PORT}:${SERVER_PORT}"

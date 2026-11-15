@@ -1,0 +1,7 @@
+.vscode
+.kilo
+node_modules
+.env
+config.json
+dist
+data

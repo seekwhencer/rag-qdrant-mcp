@@ -1,0 +1,232 @@
+/* Settings page */
+.settings-page {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 100vh;
+  padding: calc(var(--space-12) + var(--space-4)) var(--space-5) var(--space-8);
+}
+
+.settings {
+  width: 100%;
+  max-width: 1100px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+}
+
+.settings__header {
+  padding: var(--space-5) var(--space-6) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Tabs: one group = one tab */
+.settings__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+  justify-content: center;
+}
+
+.settings__tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background-color var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.settings__tab:hover {
+  background-color: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.settings__tab--active {
+  background-color: var(--color-primary-subtle);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.settings__body {
+  padding: var(--space-5) var(--space-6);
+  flex: 1;
+}
+
+/* Panel: shared frame for all settings tabs */
+.settings__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  position: relative;
+}
+
+.settings__panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.settings__panel-header h3 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  color: var(--color-text);
+}
+
+.settings__loading {
+  color: var(--color-validation);
+  font-size: var(--fs-xs);
+  margin: 0;
+  position: absolute;
+  top: -10px;
+}
+
+.settings__hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-secondary);
+}
+
+.settings__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+
+.settings__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--fs-sm);
+  color: var(--color-text-secondary);
+}
+
+.settings__field--full {
+  grid-column: 1 / -1;
+}
+
+.settings__field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  color: var(--color-text);
+  align-items: self-start;
+}
+
+/* Env-locked fields (set via environment variable → not editable) */
+.settings__field--locked {
+  color: var(--color-muted);
+}
+
+.settings__field--locked input,
+.settings__field--locked select,
+.settings__field--locked textarea {
+  background-color: var(--color-surface-alt);
+  color: var(--color-muted);
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.settings__field--locked input::placeholder,
+.settings__field--locked textarea::placeholder {
+  color: var(--color-muted);
+  opacity: 0.7;
+}
+
+/* Lock badge behind the field name (tooltip on hover/focus) */
+.env-lock {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: var(--space-1);
+  vertical-align: middle;
+  color: var(--color-muted);
+  cursor: help;
+  border-radius: var(--radius-sm);
+  outline-offset: 2px;
+}
+
+.env-lock__tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(2px);
+  background-color: var(--color-text);
+  color: var(--color-bg);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition), transform var(--transition), visibility var(--transition);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.env-lock__tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: var(--color-text);
+}
+
+.env-lock:hover .env-lock__tooltip,
+.env-lock:focus-visible .env-lock__tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+.settings__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.settings__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.settings__error {
+  color: var(--color-error);
+  font-size: var(--fs-sm);
+  margin: 0;
+}
+
+.settings__saved {
+  color: var(--color-success);
+  font-size: var(--fs-sm);
+  margin: 0;
+}
+
+@media (max-width: 520px) {
+  .settings__grid {
+    grid-template-columns: 1fr;
+  }
+}
