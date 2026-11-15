@@ -9,29 +9,37 @@ const KEY = 'rag-qdrant-mcp.appSettings';
 // primaryHue:    Farbton (0-360); Sättigung + Helligkeit fix (s. primaryColor.js)
 // secondaryHue:  Farbton (0-360); Sättigung + Helligkeit fix (s. secondaryColor.js)
 // radiusFactor:  Roundness (0-1); skaliert --radius-* (s. radius.js)
-export const APP_SETTINGS_DEFAULTS = {
-  primaryHue: defaultPrimaryHue(),
-  secondaryHue: defaultSecondaryHue(),
-  radiusFactor: defaultRadiusFactor(),
-};
+//
+// Defaults werden LAZY berechnet (erster Zugriff, nicht Modul-Init), damit die
+// CSS-Basisfarbe (Hue) schon geladen ist, wenn sie gelesen wird.
+function computeDefaults() {
+  return {
+    primaryHue: defaultPrimaryHue(),
+    secondaryHue: defaultSecondaryHue(),
+    radiusFactor: defaultRadiusFactor(),
+  };
+}
 
 function read() {
   try {
     const raw = localStorage.getItem(KEY);
-    return { ...APP_SETTINGS_DEFAULTS, ...(raw ? JSON.parse(raw) : {}) };
+    const saved = raw ? JSON.parse(raw) : {};
+    return { ...computeDefaults(), ...saved };
   } catch {
-    return { ...APP_SETTINGS_DEFAULTS };
+    return computeDefaults();
   }
 }
 
-let cache = read();
+let cache = null;
 const listeners = new Set();
 
 export function getAppSettings() {
+  if (cache === null) cache = read();
   return cache;
 }
 
 export function setAppSettings(patch) {
+  if (cache === null) cache = read();
   cache = { ...cache, ...patch };
   try {
     localStorage.setItem(KEY, JSON.stringify(cache));
@@ -42,7 +50,7 @@ export function setAppSettings(patch) {
 }
 
 export function resetAppSettings() {
-  setAppSettings({ ...APP_SETTINGS_DEFAULTS });
+  setAppSettings(computeDefaults());
 }
 
 export function subscribeAppSettings(listener) {

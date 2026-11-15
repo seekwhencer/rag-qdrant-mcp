@@ -5,7 +5,7 @@
   --color-primary-active: color-mix(in srgb, var(--color-primary) 70%, black);
   --color-primary-subtle: color-mix(in srgb, var(--color-primary) 10%, transparent);
 
-  --color-secondary: #b45309;
+  --color-secondary: #ae09b4;
   --color-secondary-hover: color-mix(in srgb, var(--color-secondary) 85%, black);
   --color-secondary-active: color-mix(in srgb, var(--color-secondary) 70%, black);
   --color-secondary-subtle: color-mix(in srgb, var(--color-secondary) 10%, transparent);
