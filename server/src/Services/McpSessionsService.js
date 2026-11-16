@@ -1,3 +1,7 @@
+import { broadcastToListeners } from '../Utils/listeners.js';
+import { throttleTrailing } from '../Utils/throttle.js';
+import { noopLogger } from '../Utils/logger.js';
+
 /**
  * Trackt verbundene MCP-Clients (Systeme am MCP-Endpunkt).
  *
@@ -12,7 +16,7 @@
  * Broadcastet Änderungen an Listener (Dashboard-WebSocket), damit das
  * Dashboard live ohne Pollen aktualisiert wird.
  */
-class McpSessionTracker {
+class McpSessionsService {
     /**
      * @param {object} [opts]
      * @param {Logger} [opts.logger]
@@ -21,14 +25,15 @@ class McpSessionTracker {
      */
     constructor({ logger, idleTimeoutMs = 5 * 60 * 1000, sweepIntervalMs = 30 * 1000 } = {}) {
         this.label = '[McpSessions]';
-        this.logger = logger || { log: () => {}, error: () => {} };
+        this.logger = logger || noopLogger();
         this.idleTimeoutMs = idleTimeoutMs;
         this.sweepIntervalMs = sweepIntervalMs;
         this.clients = new Map(); // key (ip|userAgent) -> record
         this.listeners = new Set(); // () => void
         this.timer = null;
-        this.emitTimer = null;
-        this.lastEmit = 0;
+        // Gedrosselt: max. ein Broadcast pro 300ms, mit trailing-Emit, damit
+        // Request-Bursts nicht zu vielen Nachrichten führen.
+        this.emitChange = throttleTrailing(() => this.doEmit(), 300);
     }
 
     /** Startet den Idle-Sweep-Timer. */
@@ -44,10 +49,7 @@ class McpSessionTracker {
             clearInterval(this.timer);
             this.timer = null;
         }
-        if (this.emitTimer) {
-            clearTimeout(this.emitTimer);
-            this.emitTimer = null;
-        }
+        this.emitChange.cancel();
         this.listeners.clear();
     }
 
@@ -117,39 +119,10 @@ class McpSessionTracker {
         return () => this.listeners.delete(fn);
     }
 
-    /**
-     * An alle Listener broadcasten (Fehler pro Listener isoliert).
-     * Gedrosselt: max. ein Broadcast pro 300ms, mit trailing-Emit, damit
-     * Request-Bursts nicht zu vielen Nachrichten führen.
-     */
-    emitChange() {
-        const now = Date.now();
-        const wait = 300 - (now - this.lastEmit);
-        if (wait > 0) {
-            if (!this.emitTimer) {
-                this.emitTimer = setTimeout(() => {
-                    this.emitTimer = null;
-                    this.lastEmit = Date.now();
-                    this.doEmit();
-                }, wait);
-                if (this.emitTimer.unref) this.emitTimer.unref();
-            }
-            return;
-        }
-        this.lastEmit = now;
-        this.doEmit();
-    }
-
-    /** Tatsächlicher Broadcast an alle Listener. */
+    /** Tatsächlicher Broadcast an alle Listener (Fehler pro Listener isoliert). */
     doEmit() {
-        for (const listener of this.listeners) {
-            try {
-                listener();
-            } catch (err) {
-                this.logger.error(this.label, `broadcast failed: ${err.message}`);
-            }
-        }
+        broadcastToListeners(this.listeners, undefined, { logger: this.logger, label: this.label });
     }
 }
 
-export { McpSessionTracker };
+export { McpSessionsService };

@@ -1,15 +1,16 @@
-import { Qdrant } from './Qdrant.js';
-import { Llm } from './Llm.js';
+import { QdrantService } from './QdrantService.js';
+import { LlmService } from './LlmService.js';
 import { Config } from '../Config.js';
+import { noopLogger } from '../Utils/logger.js';
 
 /**
  * Performs semantic search on vectors stored in Qdrant and generates LLM-based answers (RAG).
  */
-class Search {
+class SearchService {
     /**
      * @param {object} params - Configuration parameters
-     * @param {Qdrant} [params.qdrant] - Qdrant client instance
-     * @param {Llm} [params.llm] - LLM service instance
+     * @param {QdrantService} [params.qdrant] - Qdrant client instance
+     * @param {LlmService} [params.llm] - LLM service instance
      * @param {string} [params.qdrantUrl] - Qdrant server URL
      * @param {number} [params.qdrantPort] - Qdrant port
      * @param {string} [params.qdrantCollection] - Qdrant collection name
@@ -43,10 +44,10 @@ class Search {
         this.qdrantCollection = qdrantCollection;
         this.topK = topK;
         this.systemPrompt = systemPrompt || new Config().chat.systemPrompt;
-        this.label = '[Search]';
-        this.logger = logger || { log: () => {}, error: () => {} };
-        this.qdrant = qdrant || new Qdrant({ url: qdrantUrl, port: qdrantPort, collection: qdrantCollection, logger: this.logger });
-        this.llm = llm || new Llm({
+        this.label = '[SearchService]';
+        this.logger = logger || noopLogger();
+        this.qdrant = qdrant || new QdrantService({ url: qdrantUrl, port: qdrantPort, collection: qdrantCollection, logger: this.logger });
+        this.llm = llm || new LlmService({
             embeddingsApi, embeddingsUrl, embeddingsModel, embeddingsHost,
             chatApi, chatUrl, chatModel,
             logger: this.logger
@@ -183,4 +184,4 @@ class Search {
     }
 }
 
-export { Search };
+export { SearchService };

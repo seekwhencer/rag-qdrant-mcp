@@ -1,7 +1,7 @@
 import express from 'express';
 import { createServer as createHttpServer } from 'node:http';
 import { Router } from './Router/index.js';
-import { McpService } from './Services/Mcp.js';
+import { McpService } from './Services/McpService.js';
 import { LogService } from './LogService.js';
 
 /**
@@ -11,12 +11,14 @@ import { LogService } from './LogService.js';
 export class Server {
     /**
      * @param {object} config - Configuration object
-     * @param {Search} search - Search service
+     * @param {SearchService} search - Search service
+     * @param {Database} database - zentrale Database-Instanz (Pool-Eigentümer)
      * @param {Logger} [logger] - Logger instance
      */
-    constructor(config, search, logger) {
+    constructor(config, search, database, logger) {
         this.config = config;
         this.search = search;
+        this.database = database;
         this.label = '[Server]';
         this.logger = logger || { log: () => {}, error: () => {} };
 
@@ -57,7 +59,7 @@ export class Server {
         }
 
         // append the routes
-        this.router = new Router(this.config, this.search, this.httpServer, this.mcpService, this.logService, this.logger);
+        this.router = new Router(this.config, this.search, this.httpServer, this.mcpService, this.logService, this.database, this.logger);
         await this.router.define();
         this.app.use(this.router.router);
 
@@ -88,7 +90,7 @@ export class Server {
             this.router?.dashboardService?.stop();
             this.search?.qdrant?.stop(); // Reconnect-Loop stoppen
             this.router?.filesWs?.close();
-            this.router?.fileService?.stop();
+            await this.router?.fileService?.stop();
             this.router?.mcpSessions?.stop();
             this.logService.stop();      // Listener entfernen
             this.httpServer.close(() => process.exit(0));

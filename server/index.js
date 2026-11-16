@@ -1,9 +1,10 @@
 import { Config } from './src/Config.js';
 import { Logger } from './src/Logger.js';
 import { Server } from './src/Server.js';
-import { Search } from './src/Services/Search.js';
-import { Qdrant } from './src/Services/Qdrant.js';
-import { Llm } from './src/Services/Llm.js';
+import { SearchService } from './src/Services/SearchService.js';
+import { QdrantService } from './src/Services/QdrantService.js';
+import { LlmService } from './src/Services/LlmService.js';
+import { Database } from './src/Database.js';
 
 class App {
     constructor(config = new Config()) {
@@ -11,7 +12,10 @@ class App {
         this.label = '[App]';
         this.logger = new Logger({ verbose: config.verbose });
 
-        this.qdrant = new Qdrant({
+        // Einzige Database-Instanz (Pool-Eigentümer) — wird durchgereicht.
+        this.database = new Database({ db: config.db, logger: this.logger });
+
+        this.qdrant = new QdrantService({
             url: config.qdrant.url,
             port: config.qdrant.port,
             collection: config.qdrant.collection,
@@ -29,7 +33,7 @@ class App {
         };
         this.config.on('change', this._onConfigChange);
 
-        this.llm = new Llm({
+        this.llm = new LlmService({
             embeddingsApi: config.embeddings.api,
             embeddingsUrl: config.embeddings.url,
             embeddingsModel: config.embeddings.model,
@@ -40,7 +44,7 @@ class App {
             logger: this.logger
         });
 
-        this.search = new Search({
+        this.search = new SearchService({
             qdrant: this.qdrant,
             llm: this.llm,
             systemPrompt: config.chat.systemPrompt,
@@ -48,7 +52,7 @@ class App {
             logger: this.logger
         });
 
-        this.server = new Server(this.config, this.search, this.logger);
+        this.server = new Server(this.config, this.search, this.database, this.logger);
     }
 
     async run() {

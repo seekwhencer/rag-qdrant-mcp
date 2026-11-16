@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
+import { noopLogger } from '../Utils/logger.js';
 
 /**
  * MCP service that registers tools for asking questions and searching.
@@ -14,7 +15,7 @@ class McpService {
         this.search = search;
         this.mcpServer = null;
         this.label = '[MCP]';
-        this.logger = logger || { log: () => {}, error: () => {} };
+        this.logger = logger || noopLogger();
     }
 
     /**

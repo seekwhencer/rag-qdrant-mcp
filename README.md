@@ -44,26 +44,33 @@ environment variables (see Configuration).
 - **Docker** (recommended) or Node.js 20+ for local development.
 - A running **[Qdrant](https://qdrant.tech)** instance reachable at `QDRANT_URL`:`QDRANT_PORT`.
 - An LLM host supporting the embedding and chat APIs you configure (`EMBEDDINGS_API`, `CHAT_API`), e.g. [Ollama](https://ollama.com) or a llama.cpp-compatible OpenAI endpoint.
+- **MariaDB** (required) — provided as a Compose service via `compose-db.yml` (see [Database](#database-mariadb)).
 
 ## Installation and Start with Docker
 
-Copy `.env.example` to `.env` and fill in the required variables:
+Copy `.env.example` to `.env` and fill in the required variables (including the
+`DB_*` database variables — see [Database](#database-mariadb)):
 
 ```bash
 cp .env.example .env
 ```
 
-Start the service with Docker Compose:
+Start the service with Docker Compose (the MariaDB service is **required** and is
+merged in via the `compose-db.yml` overlay):
 
 ```bash
-docker compose up --build
+docker compose -f compose.yml -f compose-db.yml up --build
 ```
 
 For local development with hot reload:
 
 ```bash
-docker compose -f compose-local-dev.yml up --build
+docker compose -f compose-dev.yml -f compose-db.yml up --build
 ```
+
+> **Note:** `docker compose up` without `-f compose-db.yml` is **not** a valid
+> operating mode — the app expects MariaDB and the file service will stay in its
+> reconnect loop until the database is reachable.
 
 The service is exposed on the port defined by `SERVER_PORT` (default `3000`).
 
@@ -77,7 +84,7 @@ passed via `compose.yml` using a `.env` file:
 | `SERVER_PORT`      | Port the service listens on (default: `3000`)                                                                         |
 | `VERBOSE`          | Enable verbose logging (`true`/`false`, default: `false`)                                                             |
 | `SEARCH_TOP_K`     | Number of chunks retrieved from Qdrant for a RAG answer (default: `10`)                                               |
-| `DATA_DIR`         | Data folder holding the JSON store file `files.json` (default: one level above `server/`, `/app/data` in Docker)      |
+| `DATA_DIR`         | Data folder for `config.json` and the legacy `files.json` backup (default: one level above `server/`, `/app/data` in Docker) |
 | `QDRANT_URL`       | Base URL of the Qdrant instance                                                                                       |
 | `QDRANT_PORT`      | Port of the Qdrant instance (default: `80`)                                                                           |
 | `QDRANT_COLLECTION`| Name of the Qdrant collection (default: `research`)                                                                   |
@@ -93,6 +100,13 @@ passed via `compose.yml` using a `.env` file:
 | `MCP_PATH`         | MCP endpoint path (default: `/mcp`)                                                                                   |
 | `MCP_ALLOWED_HOSTS`| Comma-separated list of allowed hostnames for DNS rebinding protection (e.g. `localhost,127.0.0.1,[::1]`)             |
 | `CONFIG_PATH`      | Path to `config.json` (default: `server/config.json`)                                                                 |
+| `DB_HOST`          | MariaDB host (default: `127.0.0.1`; `mariadb` inside Compose)                                                         |
+| `DB_PORT`          | MariaDB port (default: `3306`)                                                                                        |
+| `DB_USER`          | MariaDB user (default: `rag`, not root)                                                                               |
+| `DB_PASSWORD`      | MariaDB password (required; never persisted to `config.json`)                                                         |
+| `DB_NAME`          | MariaDB database name (default: `ragqdrant`)                                                                          |
+| `DB_POOL_SIZE`     | Connection pool size (default: `5`)                                                                                   |
+| `DB_ROOT_PASSWORD` | MariaDB root password (required for the `mariadb` Compose service)                                                    |
 
 The older `LLM_URL`, `LLM_API` and `MODEL_NAME` variables are still supported as
 fallbacks for `EMBEDDINGS_URL`, `EMBEDDINGS_API` and `EMBEDDINGS_MODEL`.
@@ -107,11 +121,10 @@ The service watches a storage folder (a Docker shared volume) for file changes a
 processes them through a background queue. Every `create`, `modify` and `delete`
 event enqueues a job; a dummy processing step waits a configurable number of
 seconds per file and event before the job is marked done. The folder structure is
-mirrored in a JSON store (`files.json` in the data folder, outside the storage
-root) with per-file metadata — deleted files are kept as tombstones, never
-removed. The data folder sits one level above `server/` (same level as
-`frontend/` and `server/`); its location is changeable at runtime in the web
-UI under Settings → Server (`dataDir`).
+mirrored in **MariaDB** (table `files`, database `ragqdrant`) with per-file
+metadata — deleted files are kept as tombstones (`status='deleted'` + `deleted_at`),
+never removed. MariaDB is the **only** store backend (no JSON fallback, no
+driver switch); see [Database](#database-mariadb).
 
 - Drop files into the `storage/` folder (mounted at `/app/storage` in the
   container) to enqueue them. Files already present are picked up on startup via
@@ -130,6 +143,60 @@ UI under Settings → Server (`dataDir`).
 | `STORAGE_DUMMY_DELAY_SEC` | Dummy processing delay per file and event, in seconds (default: `2`)                            |
 | `STORAGE_RETRY_DELAY_SEC` | Wait time before a failed job is retried, in seconds (default: `5`)                             |
 | `STORAGE_MAX_RETRIES`     | Max retries per job (default: `3`, `0` disables retries)                                        |
+
+## Database (MariaDB)
+
+MariaDB is the **required** store backend for the file metadata (table `files`).
+There is **no JSON fallback** and **no driver switch** — if the database is not
+reachable, the file service stays in its reconnect loop (backoff `DB_RETRY_DELAY_SEC`,
+max `DB_MAX_RETRIES`; `0` = unlimited) and the snapshot reports
+`store.connected = false`. The rest of the service (Dashboard, Logs, MCP) keeps
+running.
+
+### Starting the database
+
+The MariaDB service is defined in `compose-db.yml` and is merged into the app
+service by name. Always start with the overlay:
+
+```bash
+# production
+docker compose -f compose.yml -f compose-db.yml up
+
+# development (hot reload)
+docker compose -f compose-dev.yml -f compose-db.yml up
+```
+
+The database is **not** exposed to the host (internal Compose network only).
+Credentials come from the `.env` file (`DB_USER`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`).
+
+### Schema & migrations
+
+The schema is created and kept up to date by a built-in migration runner
+(`server/src/db/migrate.js`) that runs on every app start (idempotent). Migrations
+live in `server/src/db/migrations/` (e.g. `001_init.sql`) and are tracked in the
+`schema_migrations` table. No external migration tool is required.
+
+### Importing an existing `files.json`
+
+If you have a legacy `files.json` (from the old JSON store), you can import it
+into MariaDB with the one-shot CLI (idempotent, latest-wins, batched upserts):
+
+```bash
+# from the server/ directory (or inside the container)
+node src/db/import.js --from /path/to/files.json
+```
+
+The source file is kept as a backup (nothing is deleted). After the import, restart
+the service — MariaDB is now the only store.
+
+### Settings UI
+
+The database connection is configurable in the web UI under **Settings → Database**
+(`db` group): host, port, user, password, database, pool size, connect timeout,
+reconnect interval and max retries. The password field is masked (`••••••`) in the
+API response and is never persisted to `config.json` — the real value always comes
+from the `DB_PASSWORD` environment variable. Leaving the password field empty on
+save means "unchanged".
 
 ## MCP (Model Context Protocol)
 

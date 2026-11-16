@@ -51,8 +51,9 @@
 
 /* ===== Inputs ===== */
 .settings__field input[type='text'],
+.settings__field input[type='number'],
 .settings__field input[type='url'],
-.settings__field input[type='number'] {
+.settings__field input[type='password'] {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   color: var(--color-text);
@@ -64,7 +65,9 @@
 }
 
 .settings__field input[type='text']:focus,
-.settings__field input[type='number']:focus {
+.settings__field input[type='number']:focus,
+.settings__field input[type='url']:focus,
+.settings__field input[type='password']:focus {
   border-color: var(--color-primary);
   background-color: var(--color-surface);
 }

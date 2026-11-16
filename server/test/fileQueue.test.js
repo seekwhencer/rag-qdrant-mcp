@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { FileQueue } from '../src/Services/FileQueue.js';
+import { FileQueue } from '../src/Services/File/FileQueue.js';
 
 const baseConfig = {
     storage: { concurrency: 1, retryDelaySec: 5, maxRetries: 3 }
@@ -253,6 +253,49 @@ describe('FileQueue', () => {
 
         expect(maxActive).toBe(2);
         expect(queue.stats().done).toBe(2);
+    });
+
+    it('concurrency=1: nächster pending-Job startet automatisch nach Job-Ende (done)', async () => {
+        const config = { storage: { concurrency: 1, retryDelaySec: 0, maxRetries: 0 } };
+        let started = 0;
+        const processor = {
+            async process() {
+                started++;
+                await new Promise((r) => setTimeout(r, 20));
+                return { ok: true };
+            }
+        };
+        const queue = new FileQueue({ config, processor });
+
+        const jobA = queue.enqueue('a.txt', 'create');
+        const jobB = queue.enqueue('b.txt', 'create');
+        await new Promise((r) => setTimeout(r, 100));
+
+        expect(started).toBe(2);
+        expect(queue.get(jobA.id).status).toBe('done');
+        expect(queue.get(jobB.id).status).toBe('done');
+        expect(queue.stats().done).toBe(2);
+    });
+
+    it('concurrency=1: nach endgültigem Fehler startet der nächste pending-Job', async () => {
+        const config = { storage: { concurrency: 1, retryDelaySec: 0, maxRetries: 0 } };
+        let started = 0;
+        const processor = {
+            async process(job) {
+                started++;
+                if (job.path === 'a.txt') throw new Error('boom');
+                return { ok: true };
+            }
+        };
+        const queue = new FileQueue({ config, processor });
+
+        const jobA = queue.enqueue('a.txt', 'create');
+        const jobB = queue.enqueue('b.txt', 'create');
+        await new Promise((r) => setTimeout(r, 50));
+
+        expect(started).toBe(2);
+        expect(queue.get(jobA.id).status).toBe('error');
+        expect(queue.get(jobB.id).status).toBe('done');
     });
 
     it('concurrency: Änderung in Config wirkt sofort (pro Tick gelesen)', async () => {

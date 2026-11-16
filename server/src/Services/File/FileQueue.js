@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { noopLogger } from '../../Utils/logger.js';
 
 const VALID_EVENTS = ['create', 'modify', 'delete'];
 
@@ -40,7 +41,7 @@ class FileQueue extends EventEmitter {
             throw new Error('FileQueue requires a processor with an async process(job, signal) method');
         }
         this.label = '[FileQueue]';
-        this.logger = logger || { log: () => {}, error: () => {} };
+        this.logger = logger || noopLogger();
         this.config = config;
         this.processor = processor;
         this.maxQueueSize = maxQueueSize;
@@ -146,6 +147,7 @@ class FileQueue extends EventEmitter {
             .finally(() => {
                 this.active--;
                 this.activeControllers.delete(job.id);
+                this.dispatch();
             });
     }
 

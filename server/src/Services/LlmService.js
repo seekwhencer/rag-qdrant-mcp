@@ -1,10 +1,13 @@
 import axios from 'axios';
-import { createHash } from 'node:crypto';
+import { normalizeUrl } from '../Utils/url.js';
+import { readSSE, readNDJSON } from '../Utils/stream.js';
+import { sha256Hex } from '../Utils/hash.js';
+import { noopLogger } from '../Utils/logger.js';
 
 /**
  * LLM service for generating embeddings and chat completions via Ollama or OpenAI-compatible APIs.
  */
-class Llm {
+class LlmService {
     /**
      * @param {object} [params] - Configuration parameters
      * @param {string} [params.embeddingsApi='ollama'] - Embedding API backend
@@ -27,13 +30,13 @@ class Llm {
     } = {}) {
         this.embeddingsConfig = {
             api: (embeddingsApi === 'openai') ? 'openai' : 'ollama',
-            baseUrl: this.normalizeUrl(embeddingsUrl),
+            baseUrl: normalizeUrl(embeddingsUrl),
             modelName: embeddingsModel,
             hostHeader: embeddingsHost
         };
         this.chatConfig = {
             api: (chatApi === 'openai') ? 'openai' : 'ollama',
-            baseUrl: this.normalizeUrl(chatUrl),
+            baseUrl: normalizeUrl(chatUrl),
             modelName: chatModel
         };
 
@@ -41,16 +44,7 @@ class Llm {
         // Avoids redundant LLM calls when identical chunks are re-synced within a session/process.
         this._embeddingCache = new Map();
         this.label = '[Embed]';
-        this.logger = logger || { log: () => {}, error: () => {} };
-    }
-
-    /**
-     * Normalizes a URL by stripping trailing slashes.
-     * @param {string} url - The URL to normalize
-     * @returns {string}
-     */
-    normalizeUrl(url) {
-        return String(url || '').replace(/\/+$/, '');
+        this.logger = logger || noopLogger();
     }
 
     /**
@@ -60,14 +54,14 @@ class Llm {
      */
     async embed(text) {
         // Return cached embedding for identical chunk text, avoiding redundant LLM calls.
-        const key = createHash('sha256').update(String(text)).digest('hex');
+        const key = sha256Hex(text);
         if (this._embeddingCache.has(key)) return this._embeddingCache.get(key);
 
         let vector;
 
         try {
             const cfg = this.embeddingsConfig;
-            const base = this.normalizeUrl(cfg.baseUrl);
+            const base = normalizeUrl(cfg.baseUrl);
             const headers = cfg.hostHeader ? { Host: cfg.hostHeader } : undefined;
 
             if (cfg.api === 'openai') {
@@ -116,7 +110,7 @@ class Llm {
      */
     async chat(messages, options = {}) {
         const cfg = this.chatConfig;
-        const base = this.normalizeUrl(cfg.baseUrl);
+        const base = normalizeUrl(cfg.baseUrl);
 
         if (cfg.api === 'openai') {
             const res = await axios.post(`${base}/chat/completions`, {
@@ -140,73 +134,6 @@ class Llm {
     }
 
     /**
-     * Parses an SSE (Server-Sent Events) stream into yielded JSON objects.
-     * @param {ReadableStreamDefaultReader} body - The response body reader
-     * @yields {object} Parsed JSON chunks
-     * @private
-     */
-    async *_readSSE(body) {
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                let idx;
-                while ((idx = buffer.indexOf('\n')) !== -1) {
-                    const line = buffer.slice(0, idx);
-                    buffer = buffer.slice(idx + 1);
-                    const trimmed = line.trim();
-                    if (!trimmed || trimmed === 'data: [DONE]' || !trimmed.startsWith('data:')) continue;
-                    const payload = trimmed.slice(5).trim();
-                    if (payload === '') continue;
-                    try { yield JSON.parse(payload); } catch {}
-                }
-            }
-            const tail = decoder.decode();
-            if (tail.trim() && tail.trim() !== 'data: [DONE]') {
-                try { yield JSON.parse(tail.trim()); } catch {}
-            }
-        } finally {
-            reader.releaseLock();
-        }
-    }
-
-    /**
-     * Parses an NDJSON stream into yielded JSON objects.
-     * @param {ReadableStreamDefaultReader} body - The response body reader
-     * @yields {object} Parsed JSON chunks
-     * @private
-     */
-    async *_readNDJSON(body) {
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                let idx;
-                while ((idx = buffer.indexOf('\n')) !== -1) {
-                    const line = buffer.slice(0, idx).trim();
-                    buffer = buffer.slice(idx + 1);
-                    if (line === '') continue;
-                    try { yield JSON.parse(line); } catch {}
-                }
-            }
-            const tail = buffer.trim();
-            if (tail) {
-                try { yield JSON.parse(tail); } catch {}
-            }
-        } finally {
-            reader.releaseLock();
-        }
-    }
-
-    /**
      * Streams chat completions and yields raw chunk objects.
      * @param {Array<object>} messages - Array of chat messages
      * @param {object} [options={}] - Additional options
@@ -214,7 +141,7 @@ class Llm {
      */
     async *streamChunks(messages, options = {}) {
         const cfg = this.chatConfig;
-        const base = this.normalizeUrl(cfg.baseUrl);
+        const base = normalizeUrl(cfg.baseUrl);
         const { signal, ...llmOptions } = options;
 
         const payload = {
@@ -238,7 +165,7 @@ class Llm {
         }
         if (!res.body) throw new Error('Chat-Streaming fehlgeschlagen: keine Response-Body');
 
-        yield* (cfg.api === 'openai') ? this._readSSE(res.body) : this._readNDJSON(res.body);
+        yield* (cfg.api === 'openai') ? readSSE(res.body) : readNDJSON(res.body);
     }
 
     /**
@@ -264,4 +191,4 @@ class Llm {
     }
 }
 
-export { Llm };
+export { LlmService };

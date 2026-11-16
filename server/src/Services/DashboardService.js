@@ -1,9 +1,12 @@
+import { broadcastToListeners } from '../Utils/listeners.js';
+import { noopLogger } from '../Utils/logger.js';
+
 /**
  * Aggregiert den Live-Status für das Dashboard und broadcastet Updates.
  *
  * Quellen:
  *   - Server (Port, Uptime, Memory, Log-Statistik)
- *   - MCP (Konfiguration + verbundene Sessions via McpSessionTracker)
+ *   - MCP (Konfiguration + verbundene Sessions via McpSessionsService)
  *   - Qdrant (Erreichbarkeit, Version, Punktanzahl) — serverseitig geprüft
  *   - Embeddings / Chat (Konfiguration)
  *
@@ -16,14 +19,14 @@ class DashboardService {
      * @param {object} params
      * @param {Config} params.config
      * @param {Qdrant} [params.qdrant]
-     * @param {McpSessionTracker} params.mcpSessions
+     * @param {McpSessionsService} params.mcpSessions
      * @param {LogService} [params.logService]
      * @param {Logger} [params.logger]
      * @param {number} [params.refreshIntervalMs] - Serverseitiges Qdrant-Refresh-Intervall
      */
     constructor({ config, qdrant, mcpSessions, logService, logger, refreshIntervalMs = 30 * 1000 } = {}) {
         this.label = '[Dashboard]';
-        this.logger = logger || { log: () => {}, error: () => {} };
+        this.logger = logger || noopLogger();
         this.config = config;
         this.qdrant = qdrant;
         this.mcpSessions = mcpSessions;
@@ -158,13 +161,7 @@ class DashboardService {
         if (checkQdrant) await this.checkQdrant();
         const snap = this.buildSnapshot();
         const payload = JSON.stringify({ type: 'update', data: snap });
-        for (const listener of this.listeners) {
-            try {
-                listener(payload);
-            } catch (err) {
-                this.logger.error(this.label, `broadcast failed: ${err.message}`);
-            }
-        }
+        broadcastToListeners(this.listeners, payload, { logger: this.logger, label: this.label });
     }
 
     /** Aktueller Snapshot (für neue WS-Clients). */

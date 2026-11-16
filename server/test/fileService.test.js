@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileService } from '../src/Services/FileService.js';
-import { FileQueue } from '../src/Services/FileQueue.js';
+import { FileQueue } from '../src/Services/File/FileQueue.js';
 import { Config } from '../src/Config.js';
 
 function makeRealConfig() {
@@ -28,8 +28,18 @@ function makeConfig(overrides = {}) {
     };
 }
 
+function makeMockDatabase() {
+    return {
+        connect: () => Promise.resolve(),
+        close: () => Promise.resolve()
+    };
+}
+
 function makeMockStore(files = []) {
-    return { list: () => files, upsert: () => ({}) };
+    return {
+        list: () => Promise.resolve(files),
+        upsert: () => Promise.resolve({})
+    };
 }
 
 function makeMockProcessor() {
@@ -60,15 +70,15 @@ describe('FileService', () => {
         expect(() => new FileService({ config: {} })).toThrow(/config/);
     });
 
-    it('buildet den Snapshot mit allen Feldern', () => {
+    it('buildet den Snapshot mit allen Feldern', async () => {
         const config = makeConfig();
         const store = makeMockStore([{ path: 'a.txt', status: 'done' }]);
         const processor = makeMockProcessor();
         const queue = new FileQueue({ config, processor });
         const watcher = makeMockWatcher();
-        const service = new FileService({ config, store, processor, queue, watcher });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcher });
 
-        const snap = service.getSnapshot();
+        const snap = await service.getSnapshot();
         expect(snap).toHaveProperty('ts');
         expect(snap.root).toBe('/tmp/storage');
         expect(snap.enabled).toBe(true);
@@ -88,7 +98,7 @@ describe('FileService', () => {
         expect(snap.files).toHaveLength(1);
     });
 
-    it('queue im Snapshot: neueste zuerst, cap 200', () => {
+    it('queue im Snapshot: neueste zuerst, cap 200', async () => {
         const config = makeConfig();
         const processor = makeMockProcessor();
         const queue = new FileQueue({ config, processor });
@@ -100,16 +110,16 @@ describe('FileService', () => {
 
         const store = makeMockStore();
         const watcher = makeMockWatcher();
-        const service = new FileService({ config, store, processor, queue, watcher });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcher });
 
-        const snap = service.getSnapshot();
+        const snap = await service.getSnapshot();
         expect(snap.queue).toHaveLength(200);
         // neueste zuerst
         expect(snap.queue[0].path).toBe('f249.txt');
         expect(snap.queue[199].path).toBe('f50.txt');
     });
 
-    it('pause/resume/abort/removeJob delegiert an Queue + refresh', () => {
+    it('pause/resume/abort/removeJob delegiert an Queue + refresh', async () => {
         const config = makeConfig();
         const store = makeMockStore();
         const processor = makeMockProcessor();
@@ -126,17 +136,17 @@ describe('FileService', () => {
         queue.remove = (id) => { calls.push(['remove', id]); return origRemove(id); };
 
         const watcher = makeMockWatcher();
-        const service = new FileService({ config, store, processor, queue, watcher });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcher });
 
-        service.pause();
-        service.resume();
-        service.abort();
-        service.removeJob('job123');
+        await service.pause();
+        await service.resume();
+        await service.abort();
+        await service.removeJob('job123');
 
         expect(calls).toEqual(['pause', 'resume', 'abort', ['remove', 'job123']]);
     });
 
-    it('Config-Change auf root → Watcher neu starten', () => {
+    it('Config-Change auf root → Watcher neu starten', async () => {
         const config = makeConfig({ root: '/tmp/storage1' });
         const store = makeMockStore();
         const processor = makeMockProcessor();
@@ -149,16 +159,16 @@ describe('FileService', () => {
             watchers.push(w);
             return w;
         };
-        const service = new FileService({ config, store, processor, queue, watcherFactory });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcherFactory });
 
-        service.start();
+        await service.start();
         expect(watchers).toHaveLength(1);
         expect(watchers[0].started).toBe(1);
         expect(service._watcherRoot).toBe('/tmp/storage1');
 
         // Root ändern.
         config.storage.root = '/tmp/storage2';
-        service.onConfigChange();
+        await service.onConfigChange();
 
         // Neuer Watcher erstellt + gestartet, alter gestoppt.
         expect(watchers).toHaveLength(2);
@@ -168,27 +178,27 @@ describe('FileService', () => {
         expect(service._watcherRoot).toBe('/tmp/storage2');
     });
 
-    it('Config-Change auf dataDir → Store.setPath mit neuem Pfad', () => {
+    it('Config-Change auf dataDir → Store.setPath mit neuem Pfad', async () => {
         const config = makeConfig();
         const setPathCalls = [];
         const store = {
-            list: () => [],
-            upsert: () => ({}),
+            list: () => Promise.resolve([]),
+            upsert: () => Promise.resolve({}),
             setPath: (p) => { setPathCalls.push(p); }
         };
         const processor = makeMockProcessor();
         const queue = new FileQueue({ config, processor });
         const watcher = makeMockWatcher();
-        const service = new FileService({ config, store, processor, queue, watcher });
-        service.start();
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcher });
+        await service.start();
 
         config.dataDir = '/tmp/data2';
-        service.onConfigChange({ changed: ['dataDir'] });
+        await service.onConfigChange({ changed: ['dataDir'] });
 
         expect(setPathCalls).toEqual([join('/tmp/data2', 'files.json')]);
     });
 
-    it('enabled=false → Watcher + Queue stoppen; enabled=true → starten', () => {
+    it('enabled=false → Watcher + Queue stoppen; enabled=true → starten', async () => {
         const config = makeConfig();
         const store = makeMockStore();
         const processor = makeMockProcessor();
@@ -203,25 +213,25 @@ describe('FileService', () => {
             watchers.push(w);
             return w;
         };
-        const service = new FileService({ config, store, processor, queue, watcherFactory });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcherFactory });
 
-        service.start();
+        await service.start();
         expect(watchers[0].started).toBe(1);
 
         // Deaktivieren.
         config.storage.enabled = false;
-        service.onConfigChange();
+        await service.onConfigChange();
         expect(watchers[0].stopped).toBe(1);
         expect(queueStopped).toBe(1);
 
         // Aktivieren → Watcher läuft wieder (gleiche Instanz, Root unverändert).
         config.storage.enabled = true;
-        service.onConfigChange();
+        await service.onConfigChange();
         expect(watchers[0].started).toBe(2);
         expect(watchers).toHaveLength(1);
     });
 
-    it('Config-Event (updateSettings, root-Change) → Watcher neu starten', () => {
+    it('Config-Event (updateSettings, root-Change) → Watcher neu starten', async () => {
         const config = makeRealConfig();
         const store = makeMockStore();
         const processor = makeMockProcessor();
@@ -234,9 +244,9 @@ describe('FileService', () => {
             watchers.push(w);
             return w;
         };
-        const service = new FileService({ config, store, processor, queue, watcherFactory });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcherFactory });
 
-        service.start();
+        await service.start();
         expect(watchers).toHaveLength(1);
         expect(watchers[0].started).toBe(1);
 
@@ -252,10 +262,10 @@ describe('FileService', () => {
         expect(watchers[1].root).toBe(newRoot);
         expect(service._watcherRoot).toBe(newRoot);
 
-        service.stop();
+        await service.stop();
     });
 
-    it('Config-Event (updateSettings, enabled=false) → Watcher gestoppt', () => {
+    it('Config-Event (updateSettings, enabled=false) → Watcher gestoppt', async () => {
         const config = makeRealConfig();
         const store = makeMockStore();
         const processor = makeMockProcessor();
@@ -270,9 +280,9 @@ describe('FileService', () => {
             watchers.push(w);
             return w;
         };
-        const service = new FileService({ config, store, processor, queue, watcherFactory });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcherFactory });
 
-        service.start();
+        await service.start();
         expect(watchers[0].started).toBe(1);
 
         // Deaktivieren über updateSettings() → 'change'-Event → onConfigChange.
@@ -282,21 +292,21 @@ describe('FileService', () => {
         expect(service._watcherActive).toBe(false);
         expect(queueStopped).toBe(1);
 
-        service.stop();
+        await service.stop();
     });
 
-    it('stop() abonniert Config-Event nicht mehr', () => {
+    it('stop() abonniert Config-Event nicht mehr', async () => {
         const config = makeRealConfig();
         const store = makeMockStore();
         const processor = makeMockProcessor();
         const queue = new FileQueue({ config, processor });
         const watcher = makeSpyWatcher();
-        const service = new FileService({ config, store, processor, queue, watcher });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcher });
 
-        service.start();
+        await service.start();
         expect(service._configHandler).not.toBeNull();
 
-        service.stop();
+        await service.stop();
         expect(service._configHandler).toBeNull();
         expect(config.listenerCount('change')).toBe(0);
 
@@ -315,15 +325,15 @@ describe('FileService', () => {
         const processor = makeMockProcessor();
         const queue = new FileQueue({ config, processor });
         const watcher = makeMockWatcher();
-        const service = new FileService({ config, store, processor, queue, watcher, broadcastDebounceMs: 100 });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcher, broadcastDebounceMs: 100 });
 
         const broadcasts = [];
         service.addListener((payload) => broadcasts.push(payload));
 
         // Mehrere refresh() innerhalb des Debounce-Fensters.
-        service.refresh();
-        service.refresh();
-        service.refresh();
+        await service.refresh();
+        await service.refresh();
+        await service.refresh();
 
         // Noch kein Broadcast (debounced).
         expect(broadcasts).toHaveLength(0);
@@ -350,9 +360,9 @@ describe('FileService', () => {
             log: (label, ...args) => logs.push([label, ...args]),
             error: (label, ...args) => logs.push([label, ...args])
         };
-        const service = new FileService({ config, store, processor, queue, watcher, logger });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcher, logger });
 
-        service.start();
+        await service.start();
 
         // Ein Job enqueue → start + done.
         queue.enqueue('a.txt', 'create');
@@ -364,40 +374,211 @@ describe('FileService', () => {
         expect(messages.some((m) => m.includes('Job done'))).toBe(true);
     });
 
-    it('stop() räumt Timer + Listener auf', () => {
+    it('stop() räumt Timer + Listener auf', async () => {
         const config = makeConfig();
         const store = makeMockStore();
         const processor = makeMockProcessor();
         const queue = new FileQueue({ config, processor });
         const watcher = makeMockWatcher();
-        const service = new FileService({ config, store, processor, queue, watcher });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcher });
 
-        service.start();
-        service.refresh();
+        await service.start();
+        await service.refresh();
 
         service.addListener(() => {});
         expect(service.listeners.size).toBe(1);
 
-        service.stop();
+        await service.stop();
         expect(service.listeners.size).toBe(0);
         expect(service._broadcastTimer).toBeNull();
         expect(service._queueHandler).toBeNull();
     });
 
-    it('start() startet den Watcher nur wenn enabled', () => {
+    it('start() startet den Watcher nur wenn enabled', async () => {
         const config = makeConfig({ enabled: false });
         const store = makeMockStore();
         const processor = makeMockProcessor();
         const queue = new FileQueue({ config, processor });
         const watcher = makeSpyWatcher();
-        const service = new FileService({ config, store, processor, queue, watcher });
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcher });
 
-        service.start();
+        await service.start();
         expect(watcher.started).toBe(0);
 
         // enabled=true → Watcher startet.
         config.storage.enabled = true;
-        service.onConfigChange();
+        await service.onConfigChange();
         expect(watcher.started).toBe(1);
+    });
+});
+
+describe('FileService DB-Reconnect (Schritt 5)', () => {
+    function makeReconnectConfig(dbOverrides = {}) {
+        return {
+            dataDir: '/tmp/data',
+            storage: {
+                enabled: false, // Watcher aus — Fokus auf Reconnect-Loop
+                root: '/tmp/storage',
+                concurrency: 1,
+                dummyDelaySec: 0,
+                retryDelaySec: 5,
+                maxRetries: 3,
+                maxFileSizeMb: 1024,
+                ignore: []
+            },
+            db: {
+                retryDelaySec: 10,
+                maxRetries: 0,
+                ...dbOverrides
+            }
+        };
+    }
+
+    function makeFailingDatabase({ failTimes = Infinity } = {}) {
+        let connectCalls = 0;
+        const database = {
+            connect: async () => {
+                connectCalls += 1;
+                if (connectCalls <= failTimes) throw new Error('ECONNREFUSED');
+            },
+            close: () => Promise.resolve()
+        };
+        return { database, calls: () => connectCalls };
+    }
+
+    it('connect() schlägt fehl → Retry nach db.retryDelaySec → Erfolg + refresh()', async () => {
+        vi.useFakeTimers();
+        const config = makeReconnectConfig();
+        const files = [{ path: 'a.txt', status: 'done' }];
+        const { database, calls } = makeFailingDatabase({ failTimes: 1 });
+        const store = makeMockStore(files);
+        const processor = makeMockProcessor();
+        const queue = new FileQueue({ config, processor });
+        const watcher = makeMockWatcher();
+        const service = new FileService({ config, database, store, processor, queue, watcher });
+
+        // start() darf bei DB-Down NICHT werfen.
+        await service.start();
+        expect(calls()).toBe(1);
+        expect(service._storeConnected).toBe(false);
+
+        // Snapshot meldet store.connected = false (DB down).
+        let snap = await service.getSnapshot();
+        expect(snap.store.connected).toBe(false);
+
+        // Retry nach db.retryDelaySec (10 s) → Erfolg.
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(calls()).toBe(2);
+        expect(service._storeConnected).toBe(true);
+        expect(service._storeConsecutiveFailures).toBe(0);
+
+        // refresh() nach erfolgreichem Reconnect → aktueller Stand im Snapshot.
+        snap = await service.getSnapshot();
+        expect(snap.store.connected).toBe(true);
+        expect(snap.files).toEqual(files);
+
+        await service.stop();
+    });
+
+    it('maxRetries erreicht → Reconnect gestoppt (gaveUp, kein weiterer Versuch)', async () => {
+        vi.useFakeTimers();
+        const config = makeReconnectConfig({ maxRetries: 2 });
+        const { database, calls } = makeFailingDatabase();
+        const store = makeMockStore();
+        const processor = makeMockProcessor();
+        const queue = new FileQueue({ config, processor });
+        const watcher = makeMockWatcher();
+        const service = new FileService({ config, database, store, processor, queue, watcher });
+
+        await service.start();
+        expect(calls()).toBe(1);
+        expect(service._storeGaveUp).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(calls()).toBe(2);
+        expect(service._storeGaveUp).toBe(true);
+        expect(service._storeNextAttemptAt).toBeNull();
+
+        // Kein weiterer Versuch mehr.
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(calls()).toBe(2);
+
+        await service.stop();
+    });
+
+    it('stop() beendet den Reconnect-Loop (kein hängender Timer, Pool geschlossen)', async () => {
+        vi.useFakeTimers();
+        const config = makeReconnectConfig();
+        const { database, calls } = makeFailingDatabase();
+        let closeCalls = 0;
+        database.close = async () => { closeCalls += 1; };
+        const store = makeMockStore();
+        const processor = makeMockProcessor();
+        const queue = new FileQueue({ config, processor });
+        const watcher = makeMockWatcher();
+        const service = new FileService({ config, database, store, processor, queue, watcher });
+
+        await service.start();
+        expect(calls()).toBe(1);
+        expect(service._storeReconnectTimer).not.toBeNull();
+
+        await service.stop();
+        expect(service._storeReconnectTimer).toBeNull();
+        expect(service._storeNextAttemptAt).toBeNull();
+        expect(closeCalls).toBe(1);
+
+        // Kein Connect-Versuch mehr nach stop().
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(calls()).toBe(1);
+    });
+
+    it('stop() → start() → Reconnect-Loop läuft wieder (State-Reset)', async () => {
+        vi.useFakeTimers();
+        const config = makeReconnectConfig();
+        const { database, calls } = makeFailingDatabase({ failTimes: 2 });
+        const store = makeMockStore();
+        const processor = makeMockProcessor();
+        const queue = new FileQueue({ config, processor });
+        const watcher = makeMockWatcher();
+        const service = new FileService({ config, database, store, processor, queue, watcher });
+
+        await service.start();
+        expect(calls()).toBe(1);
+        await service.stop();
+
+        // Neustart: Loop muss wieder laufen (nicht dauerhaft gestoppt).
+        await service.start();
+        expect(calls()).toBe(2);
+        expect(service._storeConnected).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(calls()).toBe(3);
+        expect(service._storeConnected).toBe(true);
+
+        await service.stop();
+    });
+
+    it('Snapshot bleibt bei DB-Down verfügbar (list() schlägt fehl → files=[], connected=false)', async () => {
+        const config = makeReconnectConfig();
+        const database = {
+            connect: async () => { throw new Error('ECONNREFUSED'); },
+            close: () => Promise.resolve()
+        };
+        const store = {
+            list: async () => { throw new Error('ECONNREFUSED'); },
+            upsert: () => Promise.resolve({})
+        };
+        const processor = makeMockProcessor();
+        const queue = new FileQueue({ config, processor });
+        const watcher = makeMockWatcher();
+        const service = new FileService({ config, database, store, processor, queue, watcher });
+
+        await service.start();
+        const snap = await service.getSnapshot();
+        expect(snap.store.connected).toBe(false);
+        expect(snap.files).toEqual([]);
+        expect(snap.stats.files).toBe(0);
+
+        await service.stop();
     });
 });

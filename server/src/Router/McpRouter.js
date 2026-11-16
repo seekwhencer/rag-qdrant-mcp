@@ -9,7 +9,7 @@ class McpRouter {
     /**
      * @param {Config} config - Configuration object
      * @param {McpService} mcpService - MCP service
-     * @param {McpSessionTracker} [mcpSessions] - Session-Tracker für das Dashboard
+     * @param {McpSessionsService} [mcpSessions] - Session-Tracker für das Dashboard
      * @param {Logger} [logger] - Logger instance
      */
     constructor(config, mcpService, mcpSessions, logger) {

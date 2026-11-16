@@ -148,6 +148,7 @@
       "chat": "Chat",
       "mcp": "MCP",
       "storage": "Dateien",
+      "database": "Datenbank",
       "ui": "UI"
     },
     "server": {
@@ -223,6 +224,28 @@
       "ignore": "Ignorieren",
       "ignoreHint": "Komma-getrennte Glob-Patterns.",
       "ignorePlaceholder": "z. B. **/.git/**, **/node_modules/**"
+    },
+    "db": {
+      "title": "Datenbank-Verbindung",
+      "host": "Host",
+      "hostHint": "MariaDB-Host (im Compose: `mariadb`).",
+      "hostPlaceholder": "z. B. mariadb",
+      "port": "Port",
+      "portHint": "MariaDB-Port (Default 3306).",
+      "user": "User",
+      "userHint": "App-User (kein root).",
+      "password": "Passwort",
+      "passwordHint": "Leer lassen = unverändert. Env `DB_PASSWORD` hat Vorrang.",
+      "database": "Datenbank",
+      "databaseHint": "Name der Datenbank (Default `ragqdrant`).",
+      "poolSize": "Pool-Größe",
+      "poolSizeHint": "Max. parallele Connections (1–50).",
+      "connectTimeoutMs": "Connect-Timeout (ms)",
+      "connectTimeoutMsHint": "Timeout für den DB-Connect.",
+      "retryDelaySec": "Reconnect-Intervall (Sekunden)",
+      "retryDelaySecHint": "Wartezeit zwischen Reconnect-Versuchen.",
+      "maxRetries": "Max. Reconnects",
+      "maxRetriesHint": "Max. Reconnect-Versuche (0 = unbegrenzt)."
     },
     "ui": {
       "title": "UI"

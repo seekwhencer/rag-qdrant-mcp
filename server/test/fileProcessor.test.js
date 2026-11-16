@@ -2,17 +2,36 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { FileStore } from '../src/Services/FileStore.js';
-import { FileProcessor, DummyProcessor } from '../src/Services/FileProcessor.js';
+import { FileProcessor, DummyProcessor } from '../src/Services/File/FileProcessor.js';
 
 const dirs = [];
 
-/** Temp-Ordner als storage-Root + echter FileStore mit Temp-Pfad. */
+/** In-Memory-Fake-Store mit async Store-Interface (Merge-Semantik, latest-wins). */
+function makeFakeStore() {
+    const entries = new Map();
+    return {
+        async upsert(relPath, meta = {}) {
+            const existing = entries.get(relPath) || {};
+            const entry = { ...existing, ...meta, path: relPath, updatedAt: new Date().toISOString() };
+            entries.set(relPath, entry);
+            return entry;
+        },
+        async list() {
+            return [...entries.values()].sort((a, b) => (a.path < b.path ? -1 : 1));
+        },
+        async get(relPath) {
+            return entries.get(relPath) || null;
+        },
+        async close() {}
+    };
+}
+
+/** Temp-Ordner als storage-Root + Fake-Store (async upsert/list/get). */
 function makeEnv({ dummyDelaySec = 0, maxFileSizeMb = 1024 } = {}) {
     const dir = mkdtempSync(join(tmpdir(), 'fileproc-'));
     dirs.push(dir);
     const config = { storage: { root: dir, dummyDelaySec, maxFileSizeMb } };
-    const store = new FileStore({ filePath: join(dir, 'data', 'files.json') });
+    const store = makeFakeStore();
     const logger = { log: vi.fn(), error: vi.fn() };
     return { dir, config, store, logger };
 }
@@ -79,7 +98,7 @@ describe('DummyProcessor', () => {
         const result = await processor.process(makeJob('docs/a.txt', 'create'));
 
         expect(result.status).toBe('done');
-        const entry = store.get('docs/a.txt');
+        const entry = await store.get('docs/a.txt');
         expect(entry.status).toBe('done');
         expect(entry.lastEvent).toBe('create');
         expect(entry.size).toBe(11);
@@ -99,7 +118,7 @@ describe('DummyProcessor', () => {
         const result = await processor.process(makeJob('a.txt', 'modify'));
 
         expect(result.status).toBe('done');
-        const entry = store.get('a.txt');
+        const entry = await store.get('a.txt');
         expect(entry.lastEvent).toBe('modify');
         expect(entry.size).toBe(17);
         expect(entry.status).toBe('done');
@@ -114,10 +133,10 @@ describe('DummyProcessor', () => {
         const result = await processor.process(makeJob('a.txt', 'delete'));
 
         expect(result.status).toBe('deleted');
-        const entry = store.get('a.txt');
+        const entry = await store.get('a.txt');
         expect(entry.status).toBe('deleted');
         expect(entry.deletedAt).toBeTruthy();
-        expect(store.list()).toHaveLength(1);
+        expect(await store.list()).toHaveLength(1);
     });
 
     it('race: File während Processing gelöscht (ENOENT) → wie delete behandeln', async () => {
@@ -132,7 +151,7 @@ describe('DummyProcessor', () => {
         const result = await promise;
 
         expect(result.status).toBe('deleted');
-        const entry = store.get('a.txt');
+        const entry = await store.get('a.txt');
         expect(entry.status).toBe('deleted');
         expect(entry.deletedAt).toBeTruthy();
     });
@@ -145,7 +164,7 @@ describe('DummyProcessor', () => {
         const result = await processor.process(makeJob('big.bin', 'create'));
 
         expect(result.status).toBe('skipped');
-        const entry = store.get('big.bin');
+        const entry = await store.get('big.bin');
         expect(entry.status).toBe('skipped');
         expect(entry.size).toBe(1024 * 1024 + 1);
         expect(logger.log).toHaveBeenCalled();
@@ -159,7 +178,7 @@ describe('DummyProcessor', () => {
         const result = await processor.process(makeJob('exact.bin', 'create'));
 
         expect(result.status).toBe('done');
-        expect(store.get('exact.bin').status).toBe('done');
+        expect((await store.get('exact.bin')).status).toBe('done');
     });
 
     it('abort: Dummy-Wartezeit hört auf AbortSignal (AbortError, kein Store-Update)', async () => {
@@ -176,7 +195,7 @@ describe('DummyProcessor', () => {
         controller.abort();
 
         await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
-        expect(store.list()).toHaveLength(0);
+        expect(await store.list()).toHaveLength(0);
     });
 
     it('abort: bereits abgebrochenes Signal → sofort AbortError', async () => {
@@ -189,6 +208,6 @@ describe('DummyProcessor', () => {
 
         await expect(processor.process(makeJob('a.txt', 'create'), controller.signal))
             .rejects.toMatchObject({ name: 'AbortError' });
-        expect(store.list()).toHaveLength(0);
+        expect(await store.list()).toHaveLength(0);
     });
 });

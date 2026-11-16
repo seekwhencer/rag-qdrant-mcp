@@ -5,12 +5,12 @@ import { SearchRouter } from './SearchRouter.js';
 import { HealthRouter } from './HealthRouter.js';
 import { SettingsRouter } from './SettingsRouter.js';
 import { FilesRouter } from './FilesRouter.js';
-import { LogsWebSocket } from '../LogsWebSocket.js';
-import { DashboardWebSocket } from '../DashboardWebSocket.js';
-import { FilesWebSocket } from '../FilesWebSocket.js';
-import { DashboardService } from '../Services/Dashboard.js';
+import { LogsWebSocket } from '../WebSocket/LogsWebSocket.js';
+import { DashboardWebSocket } from '../WebSocket/DashboardWebSocket.js';
+import { FilesWebSocket } from '../WebSocket/FilesWebSocket.js';
+import { DashboardService } from '../Services/DashboardService.js';
 import { FileService } from '../Services/FileService.js';
-import { McpSessionTracker } from '../Services/McpSessions.js';
+import { McpSessionsService } from '../Services/McpSessionsService.js';
 
 /**
  * Main router class that aggregates all server routes.
@@ -19,18 +19,20 @@ import { McpSessionTracker } from '../Services/McpSessions.js';
 class Router {
     /**
      * @param {Config} config - Configuration object
-     * @param {Search} search - Search service
+     * @param {SearchService} search - Search service
      * @param {import('node:http').Server} httpServer - HTTP server instance
      * @param {McpService} mcpService - MCP service
      * @param {LogService} logService - Log buffer / broadcast service
+     * @param {Database} database - zentrale Database-Instanz (Pool-Eigentümer)
      * @param {Logger} [logger] - Logger instance
      */
-    constructor(config, search, httpServer, mcpService, logService, logger) {
+    constructor(config, search, httpServer, mcpService, logService, database, logger) {
         this.search = search;
         this.config = config;
         this.mcpService = mcpService;
         this.httpServer = httpServer;
         this.logService = logService;
+        this.database = database;
         this.label = '[Router]';
         this.logger = logger || { log: () => {}, error: () => {} };
 
@@ -52,7 +54,7 @@ class Router {
     async define() {
 
         // MCP-Session-Tracker (verbundene Systeme am MCP-Endpunkt).
-        this.mcpSessions = new McpSessionTracker({ logger: this.logger });
+        this.mcpSessions = new McpSessionsService({ logger: this.logger });
 
         //
         const healthRouter = new HealthRouter(this.logger);
@@ -88,7 +90,7 @@ class Router {
 
         //
         // Files: Datei-Verwaltung (Watcher + Queue) + WebSocket (/files).
-        this.fileService = new FileService({ config: this.config, logger: this.logger });
+        this.fileService = new FileService({ config: this.config, database: this.database, logger: this.logger });
         this.filesWs = new FilesWebSocket(this.fileService, this.logger);
 
         const filesRouter = new FilesRouter(this.fileService, this.logger);

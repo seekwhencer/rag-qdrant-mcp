@@ -5,7 +5,7 @@ import express from 'express';
  */
 class SearchRouter {
     /**
-     * @param {Search} search - Search service
+     * @param {SearchService} search - Search service
      * @param {Logger} [logger] - Logger instance
      */
     constructor(search, logger) {

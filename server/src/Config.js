@@ -73,6 +73,26 @@ const STORAGE_PARAMS = {
 };
 
 /**
+ * Database-Parameter (MariaDB: Verbindung + Pool + Reconnect).
+ *
+ * `password` ist ein Secret: der echte Wert kommt ausschließlich aus der Env
+ * (`DB_PASSWORD`) und wird nie in config.json persistiert (siehe Passwort-Hygiene).
+ */
+const DB_PARAMS = {
+    host: { env: 'DB_HOST', type: 'string', default: '127.0.0.1' },
+    port: { env: 'DB_PORT', type: 'integer', default: 3306 },
+    user: { env: 'DB_USER', type: 'string', default: 'rag' },
+    password: { env: 'DB_PASSWORD', type: 'string', default: '' },
+    database: { env: 'DB_NAME', type: 'string', default: 'ragqdrant' },
+    poolSize: { env: 'DB_POOL_SIZE', type: 'integer', default: 5 },
+    connectTimeoutMs: { env: 'DB_CONNECT_TIMEOUT_MS', type: 'integer', default: 5000 },
+    // Reconnect: Wartezeit zwischen Verbindungsversuchen (Sekunden).
+    retryDelaySec: { env: 'DB_RETRY_DELAY_SEC', type: 'number', default: 10 },
+    // Reconnect: max. aufeinanderfolgende Fehlversuche (0 = unbegrenzt).
+    maxRetries: { env: 'DB_MAX_RETRIES', type: 'integer', default: 0 },
+};
+
+/**
  * Loads and manages server configuration from environment variables and a config.json file.
  *
  * Erbt von EventEmitter: `updateSettings()` feuert ein `change`-Event
@@ -110,7 +130,7 @@ class Config extends EventEmitter {
 
         // Env-gelockte Felder: key → Name der Umgebungsvariable.
         // Diese Werte sind in der UI nicht änderbar (Env hat immer Vorrang).
-        this.envLocked = { root: {}, qdrant: {}, embeddings: {}, chat: {}, mcp: {}, storage: {} };
+        this.envLocked = { root: {}, qdrant: {}, embeddings: {}, chat: {}, mcp: {}, storage: {}, db: {} };
         if (parseInt(env.SERVER_PORT, 10)) this.envLocked.root.serverPort = 'SERVER_PORT';
         if (env.VERBOSE === 'true') this.envLocked.root.verbose = 'VERBOSE';
         if (parseInt(env.SEARCH_TOP_K, 10)) this.envLocked.root.searchTopK = 'SEARCH_TOP_K';
@@ -122,6 +142,7 @@ class Config extends EventEmitter {
         this.chat = this.resolveParams(CHAT_PARAMS, loaded?.chat, 'chat');
         this.mcp = this.resolveParams(MCP_PARAMS, loaded?.mcp, 'mcp');
         this.storage = this.resolveParams(STORAGE_PARAMS, loaded?.storage, 'storage');
+        this.db = this.resolveParams(DB_PARAMS, loaded?.db, 'db');
     }
 
     /**
@@ -220,7 +241,9 @@ class Config extends EventEmitter {
             embeddings: Object.fromEntries(Object.entries(EMBEDDINGS_PARAMS).map(([key, spec]) => [key, spec.default])),
             chat: Object.fromEntries(Object.entries(CHAT_PARAMS).map(([key, spec]) => [key, spec.default])),
             mcp: Object.fromEntries(Object.entries(MCP_PARAMS).map(([key, spec]) => [key, spec.default])),
-            storage: Object.fromEntries(Object.entries(STORAGE_PARAMS).map(([key, spec]) => [key, spec.default]))
+            storage: Object.fromEntries(Object.entries(STORAGE_PARAMS).map(([key, spec]) => [key, spec.default])),
+            // Passwort-Hygiene: `password` bleibt ein leerer Platzhalter (Secret kommt nur aus der Env).
+            db: Object.fromEntries(Object.entries(DB_PARAMS).map(([key, spec]) => [key, spec.default]))
         };
         writeFileSync(this.configPath, JSON.stringify(defaults, null, 4), 'utf8');
     }
@@ -242,13 +265,16 @@ class Config extends EventEmitter {
             chat: { ...this.chat },
             mcp: { ...this.mcp },
             storage: { ...this.storage },
+            // Passwort-Hygiene: `db.password` wird maskiert zurückgegeben, nie der Klartext.
+            db: { ...this.db, password: '••••••' },
             envLocked: {
                 root: { ...this.envLocked.root },
                 qdrant: { ...this.envLocked.qdrant },
                 embeddings: { ...this.envLocked.embeddings },
                 chat: { ...this.envLocked.chat },
                 mcp: { ...this.envLocked.mcp },
-                storage: { ...this.envLocked.storage }
+                storage: { ...this.envLocked.storage },
+                db: { ...this.envLocked.db }
             }
         };
     }
@@ -318,6 +344,26 @@ class Config extends EventEmitter {
         if (!Array.isArray(st.ignore) || st.ignore.some((p) => typeof p !== 'string'))
             errors.push('storage.ignore muss ein Array aus Strings sein');
 
+        const d = s.db || {};
+        if (typeof d.host !== 'string' || d.host.trim() === '')
+            errors.push('db.host muss ein nicht-leerer String sein');
+        if (!Number.isInteger(d.port) || d.port < 1 || d.port > 65535)
+            errors.push('db.port muss eine Ganzzahl zwischen 1 und 65535 sein');
+        if (typeof d.user !== 'string' || d.user.trim() === '')
+            errors.push('db.user muss ein nicht-leerer String sein');
+        if (typeof d.password !== 'string')
+            errors.push('db.password muss ein String sein');
+        if (typeof d.database !== 'string' || d.database.trim() === '')
+            errors.push('db.database muss ein nicht-leerer String sein');
+        if (!Number.isInteger(d.poolSize) || d.poolSize < 1 || d.poolSize > 50)
+            errors.push('db.poolSize muss eine Ganzzahl zwischen 1 und 50 sein');
+        if (!Number.isInteger(d.connectTimeoutMs) || d.connectTimeoutMs <= 0)
+            errors.push('db.connectTimeoutMs muss eine Ganzzahl > 0 sein');
+        if (typeof d.retryDelaySec !== 'number' || d.retryDelaySec < 0)
+            errors.push('db.retryDelaySec muss eine Zahl >= 0 sein');
+        if (!Number.isInteger(d.maxRetries) || d.maxRetries < 0 || d.maxRetries > 100)
+            errors.push('db.maxRetries muss eine Ganzzahl zwischen 0 und 100 sein');
+
         return errors;
     }
 
@@ -357,6 +403,10 @@ class Config extends EventEmitter {
         p.chat = this.stripEnvLocked(patch.chat, 'chat');
         p.mcp = this.stripEnvLocked(patch.mcp, 'mcp');
         p.storage = this.stripEnvLocked(patch.storage, 'storage');
+        p.db = this.stripEnvLocked(patch.db, 'db');
+        // Passwort-Hygiene: leerer oder maskierter Passwort-Wert = "unverändert"
+        // (der echte Wert kommt ausschließlich aus der Env, nie aus der UI).
+        if (p.db && (p.db.password === '' || p.db.password === '••••••')) delete p.db.password;
 
         // Deep-Merge für die verschachtelten Objekte
         const next = {
@@ -366,7 +416,8 @@ class Config extends EventEmitter {
             embeddings: { ...current.embeddings, ...(p.embeddings || {}) },
             chat: { ...current.chat, ...(p.chat || {}) },
             mcp: { ...current.mcp, ...(p.mcp || {}) },
-            storage: { ...current.storage, ...(p.storage || {}) }
+            storage: { ...current.storage, ...(p.storage || {}) },
+            db: { ...current.db, ...(p.db || {}) }
         };
 
         const errors = this.validateSettings(next);
@@ -387,6 +438,9 @@ class Config extends EventEmitter {
         this.chat = { ...next.chat };
         this.mcp = { ...next.mcp };
         this.storage = { ...next.storage };
+        // Passwort-Hygiene: der echte Passwort-Wert (aus der Env) bleibt erhalten;
+        // der maskierte UI-Wert darf den Runtime-State nicht überschreiben.
+        this.db = { ...next.db, password: this.db.password };
 
         // Persistieren (config.json)
         this.persist();
@@ -416,7 +470,9 @@ class Config extends EventEmitter {
                     embeddings: this.embeddings,
                     chat: this.chat,
                     mcp: this.mcp,
-                    storage: this.storage
+                    storage: this.storage,
+                    // Passwort-Hygiene: das echte Passwort (aus der Env) wird nie persistiert.
+                    db: { ...this.db, password: '' }
                 },
                 null,
                 4
@@ -426,4 +482,4 @@ class Config extends EventEmitter {
     }
 }
 
-export { Config, QDRANT_PARAMS, EMBEDDINGS_PARAMS, CHAT_PARAMS, MCP_PARAMS, STORAGE_PARAMS };
+export { Config, QDRANT_PARAMS, EMBEDDINGS_PARAMS, CHAT_PARAMS, MCP_PARAMS, STORAGE_PARAMS, DB_PARAMS };

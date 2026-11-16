@@ -7,11 +7,13 @@ import EmbeddingsSettings from '../components/settings/EmbeddingsSettings.jsx';
 import ChatSettings from '../components/settings/ChatSettings.jsx';
 import McpSettings from '../components/settings/McpSettings.jsx';
 import StorageSettings from '../components/settings/StorageSettings.jsx';
+import DatabaseSettings from '../components/settings/DatabaseSettings.jsx';
 import UiSettings from '../components/settings/UiSettings.jsx';
 
 const CATEGORIES = [
   { id: 'server', title: 'settings.categories.server', component: ServerSettings },
   { id: 'storage', title: 'settings.categories.storage', component: StorageSettings },
+  { id: 'database', title: 'settings.categories.database', component: DatabaseSettings },
   { id: 'qdrant', title: 'settings.categories.qdrant', component: QdrantSettings },
   { id: 'embeddings', title: 'settings.categories.embeddings', component: EmbeddingsSettings },
   { id: 'chat', title: 'settings.categories.chat', component: ChatSettings },

@@ -1,30 +1,7 @@
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
-
-/**
- * Wartet ms Millisekunden und hört auf ein AbortSignal.
- * Bereits abgebrochen → sofort reject.
- * @param {number} ms
- * @param {AbortSignal} [signal]
- * @returns {Promise<void>}
- */
-function waitFor(ms, signal) {
-    return new Promise((resolve, reject) => {
-        if (signal?.aborted) {
-            reject(new DOMException('Aborted', 'AbortError'));
-            return;
-        }
-        const onAbort = () => {
-            clearTimeout(timer);
-            reject(new DOMException('Aborted', 'AbortError'));
-        };
-        const timer = setTimeout(() => {
-            if (signal) signal.removeEventListener('abort', onAbort);
-            resolve();
-        }, ms);
-        if (signal) signal.addEventListener('abort', onAbort, { once: true });
-    });
-}
+import { waitFor } from '../../Utils/async.js';
+import { noopLogger } from '../../Utils/logger.js';
 
 /**
  * Strategie-Interface für die Datei-Verarbeitung.
@@ -52,7 +29,7 @@ class FileProcessor {
             throw new Error('FileProcessor requires a store with an upsert method');
         }
         this.label = '[FileProcessor]';
-        this.logger = logger || { log: () => {}, error: () => {} };
+        this.logger = logger || noopLogger();
         this.config = config;
         this.store = store;
     }
@@ -79,9 +56,9 @@ class FileProcessor {
     /**
      * Setzt ein Tombstone (delete-Event / ENOENT-Race).
      * @param {object} job
-     * @returns {object} der Store-Eintrag
+     * @returns {Promise<object>} der Store-Eintrag
      */
-    markDeleted(job) {
+    async markDeleted(job) {
         return this.store.upsert(job.path, {
             status: 'deleted',
             deletedAt: new Date().toISOString(),
@@ -94,8 +71,8 @@ class FileProcessor {
  * Dummy-Verarbeitung: wartet `dummyDelaySec` (aus Config, pro Job gelesen),
  * dann Store-Update.
  *
- * - create/modify → FileStore.upsert(path, meta) (size, mtime, ctime via statSync)
- * - delete → FileStore.upsert(path, { status: 'deleted', deletedAt }) (Tombstone)
+ * - create/modify → Store.upsert(path, meta) (size, mtime, ctime via statSync)
+ * - delete → Store.upsert(path, { status: 'deleted', deletedAt }) (Tombstone)
  * - Race: File während Processing gelöscht → statSync ENOENT → wie delete behandeln
  * - Size-Limit: File > maxFileSizeMb → skipped (kein Fehler), loggen
  * - Abort: Dummy-Wartezeit hört auf AbortSignal
@@ -111,7 +88,7 @@ class DummyProcessor extends FileProcessor {
         await waitFor(delaySec * 1000, signal);
 
         if (job.event === 'delete') {
-            const entry = this.markDeleted(job);
+            const entry = await this.markDeleted(job);
             this.logger.log(this.label, 'Tombstone gesetzt (delete)', { path: job.path });
             return { status: 'deleted', path: job.path, event: job.event, size: null, entry };
         }
@@ -122,7 +99,7 @@ class DummyProcessor extends FileProcessor {
         } catch (err) {
             if (err.code === 'ENOENT') {
                 // Race: File während Processing gelöscht → wie delete behandeln
-                const entry = this.markDeleted(job);
+                const entry = await this.markDeleted(job);
                 this.logger.log(this.label, 'File während Processing gelöscht (ENOENT) → Tombstone', { path: job.path });
                 return { status: 'deleted', path: job.path, event: job.event, size: null, entry };
             }
@@ -131,7 +108,7 @@ class DummyProcessor extends FileProcessor {
 
         const maxBytes = (this.config.storage.maxFileSizeMb ?? Infinity) * 1024 * 1024;
         if (stats.size > maxBytes) {
-            const entry = this.store.upsert(job.path, {
+            const entry = await this.store.upsert(job.path, {
                 size: stats.size,
                 mtime: stats.mtime.toISOString(),
                 ctime: stats.ctime.toISOString(),
@@ -146,7 +123,7 @@ class DummyProcessor extends FileProcessor {
             return { status: 'skipped', path: job.path, event: job.event, size: stats.size, entry };
         }
 
-        const entry = this.store.upsert(job.path, {
+        const entry = await this.store.upsert(job.path, {
             size: stats.size,
             mtime: stats.mtime.toISOString(),
             ctime: stats.ctime.toISOString(),

@@ -1,13 +1,15 @@
 import { join } from 'node:path';
-import { FileStore } from './FileStore.js';
-import { DummyProcessor } from './FileProcessor.js';
-import { FileQueue } from './FileQueue.js';
-import { FileWatcher } from './FileWatcher.js';
+import { FileStore } from '../Models/FileStore.js';
+import { DummyProcessor } from './File/FileProcessor.js';
+import { FileQueue } from './File/FileQueue.js';
+import { FileWatcher } from './File/FileWatcher.js';
+import { broadcastToListeners } from '../Utils/listeners.js';
+import { noopLogger } from '../Utils/logger.js';
 
 /**
  * Orchestrator für die Datei-Verwaltung.
  *
- * Verdrahtet Config + FileStore + FileWatcher + FileQueue + FileProcessor
+ * Verdrahtet Config + Database + FileStore + FileWatcher + FileQueue + FileProcessor
  * und bietet die gleichen Muster wie DashboardService:
  *   start(), stop(), getSnapshot(), refresh(), addListener(fn).
  *
@@ -26,6 +28,7 @@ class FileService {
      * @param {object} params
      * @param {Config} params.config - Config-Objekt mit `.storage`-Gruppe
      * @param {Logger} [params.logger]
+     * @param {Database} params.database - zentrale Database-Instanz (Pool-Eigentümer, wird von `index.js` durchgereicht)
      * @param {FileStore} [params.store] - injizierbar für Tests
      * @param {object} [params.processor] - Strategie: `{ async process(job, signal) → result }`
      * @param {FileQueue} [params.queue] - injizierbar für Tests
@@ -33,21 +36,23 @@ class FileService {
      * @param {(config: object) => FileWatcher} [params.watcherFactory] - injizierbar für Tests
      * @param {number} [params.broadcastDebounceMs=100] - Broadcast-Debounce
      */
-    constructor({ config, logger, store, processor, queue, watcher, watcherFactory, broadcastDebounceMs = 100 } = {}) {
+    constructor({ config, logger, database, store, processor, queue, watcher, watcherFactory, broadcastDebounceMs = 100 } = {}) {
         if (!config || !config.storage) {
             throw new Error('FileService requires a config with a storage group');
         }
         this.label = '[FileService]';
-        this.logger = logger || { log: () => {}, error: () => {} };
+        this.logger = logger || noopLogger();
         this.config = config;
         this.broadcastDebounceMs = broadcastDebounceMs;
 
-        // Sub-Komponenten (injizierbar für Tests, sonst Default).
-        // Store-Datei liegt im Data-Ordner (config.dataDir, eine Ebene über server/).
-        this.store = store || new FileStore({
-            filePath: this.config.dataDir ? join(this.config.dataDir, 'files.json') : undefined,
-            logger: this.logger
-        });
+        // MariaDB ist der einzige Store (kein Driver-Switch, kein JSON-Fallback):
+        // `Database` besitzt den Pool, `FileStore` ist das Model für die Tabelle `files`.
+        // Die Instanz kommt von `index.js` (einmalig erzeugt, hier durchgereicht).
+        if (!database) {
+            throw new Error('FileService requires a Database instance');
+        }
+        this.database = database;
+        this.store = store || new FileStore({ db: this.database, logger: this.logger });
         this.processor = processor || new DummyProcessor({ config, store: this.store, logger: this.logger });
         this.queue = queue || new FileQueue({ config, processor: this.processor, logger: this.logger });
 
@@ -67,19 +72,43 @@ class FileService {
         this._started = false;
         this._watcherActive = false;
         this._watcherRoot = config.storage.root;
+
+        // DB-Connect-State + Reconnect-Loop (Qdrant-Pattern, Plan 6.4).
+        this._storeConnected = false;
+        this._storeError = null;
+        this._storeAttempts = 0;
+        this._storeConsecutiveFailures = 0;
+        this._storeGaveUp = false;
+        this._storeLastAttemptAt = null;
+        this._storeNextAttemptAt = null;
+        this._storeReconnectTimer = null;
+        this._storeConnecting = false;
+        this._storeStopped = false;
     }
 
     /**
-     * Startet: Queue-Changes abonnieren, Watcher starten (wenn aktiviert), Initial-Refresh.
+     * Startet: Queue-Changes abonnieren, Watcher starten (wenn aktiviert),
+     * DB-Connect mit Reconnect-Loop.
+     * DB down → kein Crash: Reconnect-Loop im Hintergrund (Backoff `db.retryDelaySec`,
+     * max. `db.maxRetries`; 0 = unbegrenzt), Snapshot meldet `store.connected = false`.
+     * @returns {Promise<void>}
      */
-    start() {
+    async start() {
         if (this._started) return;
         this._started = true;
+
+        // Reconnect-Loop-Status für den (Neu-)Start zurücksetzen
+        // (sonst würde ein `stop()` → `start()`-Zyklus den Loop dauerhaft killen).
+        this._storeStopped = false;
+        this._storeConsecutiveFailures = 0;
+        this._storeGaveUp = false;
 
         // Config-Change-Event abonnieren (onConfigChange ist idempotent/billig —
         // auf JEDES 'change'-Event reagieren, Filter prüft onConfigChange selbst).
         if (this.config.on) {
-            this._configHandler = (payload) => this.onConfigChange(payload);
+            this._configHandler = (payload) => this.onConfigChange(payload).catch((err) => {
+                this.logger.error(this.label, `onConfigChange failed: ${err.message}`);
+            });
             this.config.on('change', this._configHandler);
         }
 
@@ -90,14 +119,85 @@ class FileService {
             this.startWatcher();
         }
 
-        this.refresh();
+        // DB-Connect (SELECT 1 + Migrations). Bei Fehlschlag: kein Crash —
+        // der Reconnect-Loop läuft im Hintergrund weiter. Bei Erfolg: refresh().
+        await this._attemptStoreConnect();
     }
 
     /**
-     * Stoppt: Watcher + Queue stoppen, Timer + Listener räumen.
+     * Plant den nächsten DB-Connect-Versuch nach `delayMs` Millisekunden.
+     * (Qdrant-Pattern: `_scheduleNext`.)
+     * @param {number} delayMs
      */
-    stop() {
+    _scheduleStoreReconnect(delayMs) {
+        if (this._storeStopped) return;
+        if (this._storeReconnectTimer) clearTimeout(this._storeReconnectTimer);
+        this._storeNextAttemptAt = new Date(Date.now() + delayMs).toISOString();
+        this._storeReconnectTimer = setTimeout(() => this._attemptStoreConnect(), delayMs);
+        if (this._storeReconnectTimer.unref) this._storeReconnectTimer.unref();
+    }
+
+    /**
+     * Einmaliger DB-Connect-Versuch (`database.connect()` = SELECT 1 + Migrations).
+     * Erfolg → `store.connected = true` + `refresh()` (Frontend holt aktuellen Stand).
+     * Fehler → `store.connected = false`, nächsten Versuch planen
+     * (Backoff `db.retryDelaySec`, max. `db.maxRetries`; 0 = unbegrenzt).
+     * @returns {Promise<void>}
+     */
+    async _attemptStoreConnect() {
+        if (this._storeConnecting) return;
+        this._storeConnecting = true;
+        try {
+            this._storeAttempts += 1;
+            this._storeLastAttemptAt = new Date().toISOString();
+            this._storeNextAttemptAt = null;
+            try {
+                await this.database.connect();
+                this._storeConnected = true;
+                this._storeError = null;
+                this._storeConsecutiveFailures = 0;
+                this._storeGaveUp = false;
+                this.logger.log(this.label, `DB verbunden (Versuch ${this._storeAttempts})`);
+                try {
+                    await this.refresh();
+                } catch (err) {
+                    this.logger.error(this.label, `refresh after DB-connect failed: ${err.message}`);
+                }
+            } catch (err) {
+                this._storeConnected = false;
+                this._storeError = err?.message || 'unreachable';
+                this._storeConsecutiveFailures += 1;
+                this.logger.error(this.label, `DB nicht erreichbar (Versuch ${this._storeAttempts}): ${this._storeError}`);
+
+                const db = this.config.db || {};
+                const maxRetries = db.maxRetries ?? 0;
+                if (maxRetries > 0 && this._storeConsecutiveFailures >= maxRetries) {
+                    this._storeGaveUp = true;
+                    this.logger.error(this.label, `Max. ${maxRetries} Fehlversuche erreicht – Reconnect gestoppt.`);
+                } else {
+                    const retryDelaySec = db.retryDelaySec ?? 10;
+                    this._scheduleStoreReconnect(retryDelaySec * 1000);
+                }
+            }
+        } finally {
+            this._storeConnecting = false;
+        }
+    }
+
+    /**
+     * Stoppt: Watcher + Queue stoppen, Timer + Listener räumen, Store-Pool schließen.
+     * @returns {Promise<void>}
+     */
+    async stop() {
         this._started = false;
+        // Reconnect-Loop stoppen (kein hängender Timer nach Shutdown).
+        this._storeStopped = true;
+        this._storeConnected = false;
+        if (this._storeReconnectTimer) {
+            clearTimeout(this._storeReconnectTimer);
+            this._storeReconnectTimer = null;
+        }
+        this._storeNextAttemptAt = null;
         if (this._configHandler && this.config.off) {
             this.config.off('change', this._configHandler);
             this._configHandler = null;
@@ -113,15 +213,23 @@ class FileService {
             this._broadcastTimer = null;
         }
         this.listeners.clear();
+        await this.database.close();
     }
 
     /**
      * Baut den vollständigen Snapshot.
-     * @returns {object}
+     * @returns {Promise<object>}
      */
-    buildSnapshot() {
+    async buildSnapshot() {
         const st = this.config.storage;
         const stats = this.queue.stats();
+        let files = [];
+        try {
+            files = await this.store.list();
+        } catch (err) {
+            // DB down → Snapshot trotzdem verfügbar (`store.connected = false`).
+            this.logger.error(this.label, `list failed: ${err.message}`);
+        }
         const snap = {
             ts: new Date().toISOString(),
             root: st.root,
@@ -130,16 +238,19 @@ class FileService {
             concurrency: st.concurrency,
             dummyDelaySec: st.dummyDelaySec,
             paused: this.queue.paused,
+            store: {
+                connected: this._storeConnected
+            },
             stats: {
                 pending: stats.pending,
                 processing: stats.processing,
                 done: stats.done,
                 error: stats.error,
                 cancelled: stats.cancelled,
-                files: this.store.list().length
+                files: files.length
             },
             queue: this.queue.list().slice(0, 200),
-            files: this.store.list()
+            files
         };
         this.lastSnapshot = snap;
         return snap;
@@ -147,10 +258,10 @@ class FileService {
 
     /**
      * Snapshot bauen + debounced Broadcast an alle Listener.
-     * @returns {object} der aktuelle Snapshot
+     * @returns {Promise<object>} der aktuelle Snapshot
      */
-    refresh() {
-        this.lastSnapshot = this.buildSnapshot();
+    async refresh() {
+        this.lastSnapshot = await this.buildSnapshot();
         this.scheduleBroadcast();
         return this.lastSnapshot;
     }
@@ -160,11 +271,15 @@ class FileService {
      */
     scheduleBroadcast() {
         if (this._broadcastTimer) clearTimeout(this._broadcastTimer);
-        this._broadcastTimer = setTimeout(() => {
+        this._broadcastTimer = setTimeout(async () => {
             this._broadcastTimer = null;
-            const snap = this.buildSnapshot();
-            this.lastSnapshot = snap;
-            this.broadcast(snap);
+            try {
+                const snap = await this.buildSnapshot();
+                this.lastSnapshot = snap;
+                this.broadcast(snap);
+            } catch (err) {
+                this.logger.error(this.label, `broadcast failed: ${err.message}`);
+            }
         }, this.broadcastDebounceMs);
         if (this._broadcastTimer.unref) this._broadcastTimer.unref();
     }
@@ -175,20 +290,14 @@ class FileService {
      */
     broadcast(snap) {
         const payload = JSON.stringify({ type: 'update', data: snap });
-        for (const listener of this.listeners) {
-            try {
-                listener(payload);
-            } catch (err) {
-                this.logger.error(this.label, `broadcast failed: ${err.message}`);
-            }
-        }
+        broadcastToListeners(this.listeners, payload, { logger: this.logger, label: this.label });
     }
 
     /**
      * Aktueller Snapshot (für neue WS-Clients).
-     * @returns {object}
+     * @returns {Promise<object>}
      */
-    getSnapshot() {
+    async getSnapshot() {
         return this.lastSnapshot || this.buildSnapshot();
     }
 
@@ -204,36 +313,39 @@ class FileService {
 
     /**
      * Pause: delegiert an Queue, danach refresh().
+     * @returns {Promise<void>}
      */
-    pause() {
+    async pause() {
         this.queue.pause();
-        this.refresh();
+        await this.refresh();
     }
 
     /**
      * Resume: delegiert an Queue, danach refresh().
+     * @returns {Promise<void>}
      */
-    resume() {
+    async resume() {
         this.queue.resume();
-        this.refresh();
+        await this.refresh();
     }
 
     /**
      * Abort: delegiert an Queue, danach refresh().
+     * @returns {Promise<void>}
      */
-    abort() {
+    async abort() {
         this.queue.abort();
-        this.refresh();
+        await this.refresh();
     }
 
     /**
      * Entfernt einen pending-Job. Delegiert an Queue, danach refresh().
      * @param {string} id
-     * @returns {object|null} der entfernte Job (null, wenn nicht gefunden/nicht pending)
+     * @returns {Promise<object|null>} der entfernte Job (null, wenn nicht gefunden/nicht pending)
      */
-    removeJob(id) {
+    async removeJob(id) {
         const job = this.queue.remove(id);
-        this.refresh();
+        await this.refresh();
         return job;
     }
 
@@ -244,8 +356,9 @@ class FileService {
      * - root geändert → Watcher neu starten (Initial-Scan auf neuem Root).
      * - dataDir geändert → Store auf neue Store-Datei umstellen (Runtime-Wechsel).
      * @param {{changed?: string[]}} [payload] - Config-Change-Payload
+     * @returns {Promise<void>}
      */
-    onConfigChange(payload) {
+    async onConfigChange(payload) {
         // dataDir geändert → Store neu ausrichten (wirkt auch vor start()).
         if (payload?.changed?.includes('dataDir') && this.config.dataDir && typeof this.store.setPath === 'function') {
             const newPath = join(this.config.dataDir, 'files.json');
@@ -254,7 +367,7 @@ class FileService {
         }
 
         if (!this._started) {
-            this.refresh();
+            await this.refresh();
             return;
         }
 
@@ -265,7 +378,7 @@ class FileService {
         if (!enabled) {
             this.stopWatcher();
             this.queue.stop();
-            this.refresh();
+            await this.refresh();
             return;
         }
 
@@ -275,7 +388,7 @@ class FileService {
             this.startWatcher();
         }
 
-        this.refresh();
+        await this.refresh();
     }
 
     /**
@@ -335,7 +448,10 @@ class FileService {
                 error: job.error || undefined
             });
         }
-        this.refresh();
+        // Event-Handler (Emitter-Kontext) → refresh() fire-and-forget mit Catch.
+        this.refresh().catch((err) => {
+            this.logger.error(this.label, `refresh failed: ${err.message}`);
+        });
     }
 }
 

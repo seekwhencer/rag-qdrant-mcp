@@ -14,7 +14,7 @@ vi.mock('@qdrant/js-client-rest', () => ({
     QdrantClient: vi.fn().mockImplementation(() => clientMock)
 }));
 
-import { Qdrant } from '../src/Services/Qdrant.js';
+import { QdrantService } from '../src/Services/QdrantService.js';
 
 describe('Qdrant', () => {
     beforeEach(() => {
@@ -27,7 +27,7 @@ describe('Qdrant', () => {
     });
 
     it('upsert sends a deterministic id and a full payload', async () => {
-        const q = new Qdrant({ url: 'http://q', port: 80, collection: 'research' });
+        const q = new QdrantService({ url: 'http://q', port: 80, collection: 'research' });
         await q.upsert([0.1, 0.2], { text: 'hello', path: 'a.md', source: 'a.md', repository: 'repo', ref: 'main' });
 
         expect(clientMock.upsert).toHaveBeenCalledTimes(1);
@@ -54,7 +54,7 @@ describe('Qdrant', () => {
             .mockResolvedValueOnce(undefined);
         clientMock.collectionExists.mockResolvedValue({ result: false });
 
-        const q = new Qdrant({ url: 'http://q', collection: 'research' });
+        const q = new QdrantService({ url: 'http://q', collection: 'research' });
         await q.upsert([0.1], { text: 'x', source: 'x.md', repository: 'r' });
 
         expect(clientMock.collectionExists).toHaveBeenCalledTimes(1);
@@ -66,19 +66,19 @@ describe('Qdrant', () => {
 
     it('search returns the matching points', async () => {
         clientMock.query.mockResolvedValue({ points: [{ payload: { text: 'a' } }] });
-        const q = new Qdrant({ url: 'http://q', collection: 'c' });
+        const q = new QdrantService({ url: 'http://q', collection: 'c' });
         const results = await q.search([0.1], 5);
         expect(results).toHaveLength(1);
     });
 
     it('search returns an empty array when the collection is missing', async () => {
         clientMock.query.mockRejectedValue({ status: 404 });
-        const q = new Qdrant({ url: 'http://q', collection: 'c' });
+        const q = new QdrantService({ url: 'http://q', collection: 'c' });
         expect(await q.search([0.1])).toEqual([]);
     });
 
     it('deleteBySource deletes points filtered by source', async () => {
-        const q = new Qdrant({ url: 'http://q', collection: 'c' });
+        const q = new QdrantService({ url: 'http://q', collection: 'c' });
         await q.deleteBySource('a.md');
         expect(clientMock.delete).toHaveBeenCalledWith('c', {
             filter: { must: [{ key: 'source', match: { value: 'a.md' } }] }
@@ -87,12 +87,12 @@ describe('Qdrant', () => {
 
     it('deleteBySource ignores a missing collection', async () => {
         clientMock.delete.mockRejectedValue({ status: 404 });
-        const q = new Qdrant({ url: 'http://q', collection: 'c' });
+        const q = new QdrantService({ url: 'http://q', collection: 'c' });
         await expect(q.deleteBySource('a.md')).resolves.toBeUndefined();
     });
 
     it('isCollectionNotFoundError detects 404 and not-found messages', () => {
-        const q = new Qdrant({ url: 'http://q', collection: 'c' });
+        const q = new QdrantService({ url: 'http://q', collection: 'c' });
         expect(q.isCollectionNotFoundError({ status: 404 })).toBe(true);
         expect(q.isCollectionNotFoundError({ message: 'Collection not found' })).toBe(true);
         expect(q.isCollectionNotFoundError({ status: 500 })).toBe(false);
@@ -100,7 +100,7 @@ describe('Qdrant', () => {
 
     it('ensureCollection skips creation when the collection already exists', async () => {
         clientMock.collectionExists.mockResolvedValue({ result: true });
-        const q = new Qdrant({ url: 'http://q', collection: 'c' });
+        const q = new QdrantService({ url: 'http://q', collection: 'c' });
         await q.ensureCollection([0.1, 0.2]);
         expect(clientMock.createCollection).not.toHaveBeenCalled();
     });
@@ -109,7 +109,7 @@ describe('Qdrant', () => {
         clientMock.collectionExists.mockResolvedValue({ result: false });
         clientMock.createCollection.mockRejectedValueOnce({ status: 409, message: 'collection already exists' });
 
-        const q = new Qdrant({ url: 'http://q', collection: 'c' });
+        const q = new QdrantService({ url: 'http://q', collection: 'c' });
         await expect(q.ensureCollection([0.1])).resolves.toBeUndefined();
         expect(clientMock.createCollection).toHaveBeenCalledTimes(1);
     });
@@ -125,7 +125,7 @@ describe('Qdrant reconnect', () => {
 
     it('connects on the first attempt when reachable', async () => {
         clientMock.versionInfo.mockResolvedValue({ version: '1.12.0' });
-        const q = new Qdrant({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
+        const q = new QdrantService({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
         await vi.advanceTimersByTimeAsync(1);
         expect(q.connected).toBe(true);
         expect(q.version).toBe('1.12.0');
@@ -136,7 +136,7 @@ describe('Qdrant reconnect', () => {
 
     it('retries on failure and gives up after maxRetries consecutive failures', async () => {
         clientMock.versionInfo.mockRejectedValue({ message: 'ECONNREFUSED' });
-        const q = new Qdrant({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 3 });
+        const q = new QdrantService({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 3 });
         await vi.advanceTimersByTimeAsync(1);
         expect(q.connected).toBe(false);
         expect(q.attempts).toBe(1);
@@ -152,7 +152,7 @@ describe('Qdrant reconnect', () => {
 
     it('keeps retrying while maxRetries is 0 (unlimited)', async () => {
         clientMock.versionInfo.mockRejectedValue({ message: 'ECONNREFUSED' });
-        const q = new Qdrant({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
+        const q = new QdrantService({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
         await vi.advanceTimersByTimeAsync(1);
         expect(q.attempts).toBe(1);
         expect(q.gaveUp).toBe(false);
@@ -166,7 +166,7 @@ describe('Qdrant reconnect', () => {
     });
 
     it('does not attempt when no URL is configured', async () => {
-        const q = new Qdrant({ url: '', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
+        const q = new QdrantService({ url: '', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
         await vi.advanceTimersByTimeAsync(1);
         expect(q.connected).toBe(false);
         expect(q.error).toBe('no URL configured');
@@ -177,7 +177,7 @@ describe('Qdrant reconnect', () => {
 
     it('updateConfig resets the state and reconnects with the new settings', async () => {
         clientMock.versionInfo.mockRejectedValue({ message: 'ECONNREFUSED' });
-        const q = new Qdrant({ url: 'http://old', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
+        const q = new QdrantService({ url: 'http://old', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
         await vi.advanceTimersByTimeAsync(1);
         expect(q.attempts).toBe(1);
         expect(q.connected).toBe(false);
@@ -196,7 +196,7 @@ describe('Qdrant reconnect', () => {
 
     it('emits a status event on each attempt', async () => {
         clientMock.versionInfo.mockRejectedValue({ message: 'ECONNREFUSED' });
-        const q = new Qdrant({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
+        const q = new QdrantService({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
         const events = [];
         q.on('status', (st) => events.push(st));
         await vi.advanceTimersByTimeAsync(1);
@@ -208,7 +208,7 @@ describe('Qdrant reconnect', () => {
 
     it('getStatus returns the full status object', async () => {
         clientMock.versionInfo.mockResolvedValue({ version: '1.12.0' });
-        const q = new Qdrant({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 5 });
+        const q = new QdrantService({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 5 });
         await vi.advanceTimersByTimeAsync(1);
         const st = q.getStatus();
         expect(st.connected).toBe(true);

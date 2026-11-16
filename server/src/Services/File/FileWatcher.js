@@ -1,6 +1,8 @@
 import { watch } from 'chokidar';
 import { existsSync, mkdirSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { resolve } from 'node:path';
+import { toRelPath as toRelPathUtil } from '../../Utils/path.js';
+import { noopLogger } from '../../Utils/logger.js';
 
 /**
  * Beobachtet den storage-Root auf Datei-Änderungen (chokidar) und leitet
@@ -31,7 +33,7 @@ class FileWatcher {
             throw new Error('FileWatcher requires a handler function (relPath, event) => void');
         }
         this.label = '[FileWatcher]';
-        this.logger = logger || { log: () => {}, error: () => {} };
+        this.logger = logger || noopLogger();
         this.config = config;
         this.handler = handler;
         // Absoluter Root: chokidar emittiert dann absolute Pfade → relative() ist konsistent.
@@ -110,10 +112,9 @@ class FileWatcher {
      * @returns {string|null}
      */
     toRelPath(fullPath) {
-        const rel = relative(this.root, fullPath);
-        const normalized = rel.split(sep).join('/');
-        if (normalized === '' || isAbsolute(normalized) || normalized === '..' || normalized.startsWith('../')) {
-            this.logger.log(this.label, 'Pfad verworfen (Path-Guard)', { fullPath, rel: normalized });
+        const normalized = toRelPathUtil(this.root, fullPath);
+        if (normalized === null) {
+            this.logger.log(this.label, 'Pfad verworfen (Path-Guard)', { fullPath });
             return null;
         }
         return normalized;

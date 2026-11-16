@@ -26,11 +26,18 @@ class FilesWebSocket {
         this.wss.on('error', (err) => this.logger.error(this.label, `wss error: ${err.message}`));
     }
 
-    onConnection(ws) {
+    async onConnection(ws) {
         this.logger.log(this.label, `Client verbunden (${this.wss.clients.size} aktiv)`);
 
-        // 1) Aktueller Snapshot.
-        const snap = this.fileService.getSnapshot();
+        // 1) Aktueller Snapshot (async: DB-Roundtrip).
+        let snap;
+        try {
+            snap = await this.fileService.getSnapshot();
+        } catch (err) {
+            this.logger.error(this.label, `snapshot failed: ${err.message}`);
+            ws.terminate();
+            return;
+        }
         ws.send(JSON.stringify({ type: 'snapshot', data: snap }));
 
         // 2) Auf Updates subscribe.

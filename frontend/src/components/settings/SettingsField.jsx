@@ -3,7 +3,7 @@ import EnvLockBadge from './EnvLockBadge.jsx';
 import Toggle from '../ui/Toggle.jsx';
 
 /**
- * Rendert ein einzelnes Settings-Feld (text/number/checkbox/textarea/select/list).
+ * Rendert ein einzelnes Settings-Feld (text/number/checkbox/textarea/select/list/password).
  *
  * @param {object} props
  * @param {object} props.field - Feld-Definition (key, type, label, hint, ...)
@@ -117,6 +117,22 @@ export default function SettingsField({ field, value, onChange, locked }) {
           value={typeof value === 'string' ? value : ''}
           disabled
           readOnly
+        />
+        {hint}
+      </label>
+    );
+  }
+
+  if (field.type === 'password') {
+    return (
+      <label className={baseClass}>
+        <span>{t(field.label)} {lockBadge}</span>
+        <input
+          type="password"
+          value={typeof value === 'string' ? value : ''}
+          placeholder={field.placeholder ? t(field.placeholder) : undefined}
+          disabled={isLocked}
+          onChange={(e) => onChange(e.target.value)}
         />
         {hint}
       </label>

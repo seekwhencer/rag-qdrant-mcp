@@ -1,0 +1,41 @@
+services:
+  mariadb:
+    image: mariadb:11
+    container_name: rag-qdrant-mcp-db
+    restart: unless-stopped
+    environment:
+      - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD fehlt}
+      - MARIADB_DATABASE=${DB_NAME:-ragqdrant}
+      - MARIADB_USER=${DB_USER:-rag}
+      - MARIADB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD fehlt}
+    volumes:
+      - dbdata:/var/lib/mysql
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+  
+  #
+  # PhpMyAdmin
+  #
+  pma:
+    depends_on:
+      - mariadb
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: rag-qdrant-mcp-pma
+    restart: always
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - 4001:80
+    environment:
+      PMA_HOST: mariadb
+      MYSQL_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-root}
+
+volumes:
+  dbdata:

@@ -423,3 +423,219 @@ describe('Config storage group', () => {
         }
     });
 });
+
+describe('Config db group', () => {
+    it('uses db defaults when no config.json and no env overrides are present', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        expect(config.db.host).toBe('127.0.0.1');
+        expect(config.db.port).toBe(3306);
+        expect(config.db.user).toBe('rag');
+        expect(config.db.password).toBe('');
+        expect(config.db.database).toBe('ragqdrant');
+        expect(config.db.poolSize).toBe(5);
+        expect(config.db.connectTimeoutMs).toBe(5000);
+        expect(config.db.retryDelaySec).toBe(10);
+        expect(config.db.maxRetries).toBe(0);
+    });
+
+    it('lets env vars override db values and locks them in the UI', () => {
+        const config = new Config({
+            CONFIG_PATH: missingPath(),
+            DB_HOST: 'mariadb',
+            DB_PORT: '3307',
+            DB_USER: 'app',
+            DB_PASSWORD: 's3cret',
+            DB_NAME: 'mydb',
+            DB_POOL_SIZE: '12',
+            DB_CONNECT_TIMEOUT_MS: '8000',
+            DB_RETRY_DELAY_SEC: '20',
+            DB_MAX_RETRIES: '4'
+        });
+        expect(config.db.host).toBe('mariadb');
+        expect(config.db.port).toBe(3307);
+        expect(config.db.user).toBe('app');
+        expect(config.db.password).toBe('s3cret');
+        expect(config.db.database).toBe('mydb');
+        expect(config.db.poolSize).toBe(12);
+        expect(config.db.connectTimeoutMs).toBe(8000);
+        expect(config.db.retryDelaySec).toBe(20);
+        expect(config.db.maxRetries).toBe(4);
+        const locked = config.getSettings().envLocked.db;
+        expect(locked.host).toBe('DB_HOST');
+        expect(locked.port).toBe('DB_PORT');
+        expect(locked.user).toBe('DB_USER');
+        expect(locked.password).toBe('DB_PASSWORD');
+        expect(locked.database).toBe('DB_NAME');
+        expect(locked.poolSize).toBe('DB_POOL_SIZE');
+        expect(locked.connectTimeoutMs).toBe('DB_CONNECT_TIMEOUT_MS');
+        expect(locked.retryDelaySec).toBe('DB_RETRY_DELAY_SEC');
+        expect(locked.maxRetries).toBe('DB_MAX_RETRIES');
+    });
+
+    it('reads db values from a config.json file', () => {
+        const { dir, cfgPath } = withTempConfig({
+            db: { host: 'filehost', port: 3307, poolSize: 9, database: 'filedb' }
+        });
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            expect(config.db.host).toBe('filehost');
+            expect(config.db.port).toBe(3307);
+            expect(config.db.poolSize).toBe(9);
+            expect(config.db.database).toBe('filedb');
+            // Unset keys fall back to defaults.
+            expect(config.db.user).toBe('rag');
+            expect(config.db.connectTimeoutMs).toBe(5000);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('saveDefaults writes the db group with an empty password placeholder', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            config.saveDefaults();
+            const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            expect(written.db).toEqual({
+                host: '127.0.0.1',
+                port: 3306,
+                user: 'rag',
+                password: '',
+                database: 'ragqdrant',
+                poolSize: 5,
+                connectTimeoutMs: 5000,
+                retryDelaySec: 10,
+                maxRetries: 0
+            });
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('getSettings includes db and envLocked.db', () => {
+        const config = new Config({ CONFIG_PATH: missingPath(), DB_HOST: '/env/host' });
+        const settings = config.getSettings();
+        expect(settings.db.host).toBe('/env/host');
+        expect(settings.envLocked.db.host).toBe('DB_HOST');
+    });
+
+    it('getSettings masks db.password even when set via env', () => {
+        const config = new Config({ CONFIG_PATH: missingPath(), DB_PASSWORD: 's3cret' });
+        // Runtime-State hält den echten Wert (für die spätere DB-Verbindung).
+        expect(config.db.password).toBe('s3cret');
+        // Die UI sieht nur die Maske, nie den Klartext.
+        expect(config.getSettings().db.password).toBe('••••••');
+    });
+
+    it('validateSettings accepts valid db settings', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const errors = config.validateSettings(config.getSettings());
+        expect(errors).toEqual([]);
+    });
+
+    it('validateSettings rejects an empty db.host', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, db: { ...base.db, host: '   ' } })
+            .some((e) => e.includes('db.host'))).toBe(true);
+    });
+
+    it('validateSettings rejects db.port outside 1-65535', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, db: { ...base.db, port: 0 } })
+            .some((e) => e.includes('db.port'))).toBe(true);
+        expect(config.validateSettings({ ...base, db: { ...base.db, port: 65536 } })
+            .some((e) => e.includes('db.port'))).toBe(true);
+        expect(config.validateSettings({ ...base, db: { ...base.db, port: 33.5 } })
+            .some((e) => e.includes('db.port'))).toBe(true);
+    });
+
+    it('validateSettings rejects db.poolSize outside 1-50', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, db: { ...base.db, poolSize: 0 } })
+            .some((e) => e.includes('db.poolSize'))).toBe(true);
+        expect(config.validateSettings({ ...base, db: { ...base.db, poolSize: 51 } })
+            .some((e) => e.includes('db.poolSize'))).toBe(true);
+        expect(config.validateSettings({ ...base, db: { ...base.db, poolSize: 2.5 } })
+            .some((e) => e.includes('db.poolSize'))).toBe(true);
+    });
+
+    it('validateSettings rejects db.connectTimeoutMs <= 0', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, db: { ...base.db, connectTimeoutMs: 0 } })
+            .some((e) => e.includes('db.connectTimeoutMs'))).toBe(true);
+        expect(config.validateSettings({ ...base, db: { ...base.db, connectTimeoutMs: -100 } })
+            .some((e) => e.includes('db.connectTimeoutMs'))).toBe(true);
+    });
+
+    it('updateSettings applies a valid db patch and persists it', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            config.updateSettings({ db: { poolSize: 8, host: 'dbhost' } });
+            expect(config.db.poolSize).toBe(8);
+            expect(config.db.host).toBe('dbhost');
+            const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            expect(written.db.poolSize).toBe(8);
+            expect(written.db.host).toBe('dbhost');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('updateSettings rejects an invalid db patch', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            expect(() => config.updateSettings({ db: { poolSize: 99 } })).toThrow();
+            expect(config.db.poolSize).toBe(5);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('updateSettings ignores env-locked db keys', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath, DB_HOST: '/env/host' });
+            config.updateSettings({ db: { host: '/patched/host' } });
+            expect(config.db.host).toBe('/env/host');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('keeps the real db.password in runtime state but never persists it', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath, DB_PASSWORD: 's3cret' });
+            // UI sendet den maskierten Wert zurück (leer gelassen = unverändert).
+            config.updateSettings({ db: { poolSize: 8, password: '••••••' } });
+            // Runtime-State behält den echten Env-Wert.
+            expect(config.db.password).toBe('s3cret');
+            expect(config.db.poolSize).toBe(8);
+            // config.json enthält nie den Klartext, sondern den leeren Platzhalter.
+            const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            expect(written.db.password).toBe('');
+            expect(written.db.poolSize).toBe(8);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('treats an empty db.password in a patch as unchanged', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath, DB_PASSWORD: 's3cret' });
+            config.updateSettings({ db: { poolSize: 6, password: '' } });
+            expect(config.db.password).toBe('s3cret');
+            const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            expect(written.db.password).toBe('');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});

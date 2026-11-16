@@ -1,6 +1,7 @@
-import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { QdrantClient } from '@qdrant/js-client-rest';
+import { sha256Hex, hashToUuid } from '../Utils/hash.js';
+import { noopLogger } from '../Utils/logger.js';
 
 /**
  * Qdrant client wrapper for upserting vectors, searching, and managing collections.
@@ -11,7 +12,7 @@ import { QdrantClient } from '@qdrant/js-client-rest';
  *   - exposes a live status (attempts, next attempt, …) for the dashboard
  *   - emits a `status` event on every connection attempt
  */
-class Qdrant extends EventEmitter {
+class QdrantService extends EventEmitter {
     /**
      * @param {object} params - Configuration parameters
      * @param {string} params.url - Qdrant server URL
@@ -30,8 +31,8 @@ class Qdrant extends EventEmitter {
         logger
     } = {}) {
         super();
-        this.label = '[Qdrant]';
-        this.logger = logger || { log: () => {}, error: () => {} };
+        this.label = '[QdrantService]';
+        this.logger = logger || noopLogger();
 
         this.url = url;
         this.port = port;
@@ -203,9 +204,9 @@ class Qdrant extends EventEmitter {
         repository = '',
         ref = ''
     } = {}) {
-        const hex = createHash('sha256').update(`${chunkText}\0${repository}`).digest('hex');
+        const hex = sha256Hex(`${chunkText}\0${repository}`);
         // Qdrant requires point IDs to be unsigned integers or UUIDs; a raw hex hash is neither.
-        const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+        const id = hashToUuid(hex);
 
         // path ist Alias für source (Kompatibilität mit searchAndReturnChunks)
         const payloadPath = (path ?? source) || '';
@@ -312,4 +313,4 @@ class Qdrant extends EventEmitter {
     }
 }
 
-export { Qdrant };
+export { QdrantService };
