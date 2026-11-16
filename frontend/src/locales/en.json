@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "Dashboard",
+    "files": "Files",
     "settings": "Settings",
     "logs": "Logs",
     "about": "About"
@@ -30,7 +31,14 @@
       "endpoint": "Endpoint",
       "collection": "Collection",
       "version": "Version",
-      "points": "Points"
+      "points": "Points",
+      "attempts": "Attempts",
+      "nextAttempt": "Next attempt",
+      "nextAttemptIn": "in {{sec}}s",
+      "nextAttemptNow": "now",
+      "retryDelay": "Retry delay",
+      "maxRetries": "Max retries",
+      "unlimited": "unlimited"
     },
     "server": {
       "title": "Server",
@@ -45,6 +53,60 @@
       "title": "Models",
       "embeddings": "Embeddings",
       "chat": "Chat"
+    }
+  },
+  "files": {
+    "title": "Files",
+    "subtitle": "Live file processing",
+    "live": "Live",
+    "offline": "Offline",
+    "updated": "Updated",
+    "loading": "Loading…",
+    "error": "Could not connect to the files stream.",
+    "stats": {
+      "pending": "Pending",
+      "processing": "Processing",
+      "done": "Done",
+      "error": "Errors",
+      "cancelled": "Cancelled"
+    },
+    "queue": {
+      "title": "Processing queue",
+      "path": "Path",
+      "event": "Event",
+      "status": "Status",
+      "enqueuedAt": "Enqueued",
+      "actions": "Actions",
+      "pause": "Pause",
+      "resume": "Resume",
+      "abort": "Abort",
+      "remove": "Remove"
+    },
+    "files": {
+      "title": "Files",
+      "path": "Path",
+      "size": "Size",
+      "mtime": "Modified",
+      "status": "Status",
+      "lastEvent": "Last event"
+    },
+    "event": {
+      "create": "Created",
+      "modify": "Modified",
+      "delete": "Deleted"
+    },
+    "status": {
+      "pending": "Pending",
+      "processing": "Processing",
+      "done": "Done",
+      "error": "Error",
+      "cancelled": "Cancelled",
+      "deleted": "Deleted",
+      "skipped": "Skipped"
+    },
+    "empty": {
+      "queue": "No jobs in the queue.",
+      "files": "No files processed yet."
     }
   },
   "pages": {
@@ -85,16 +147,22 @@
       "embeddings": "Embeddings",
       "chat": "Chat",
       "mcp": "MCP",
+      "storage": "Files",
       "ui": "UI"
     },
     "server": {
       "title": "Server",
+      "configPath": "Config file",
+      "configPathHint": "Path to config.json. Can only be changed via the CONFIG_PATH environment variable.",
       "port": "Server port",
       "portHint": "Changes require a restart.",
       "verbose": "Verbose logging",
       "verboseHint": "More detailed server logs.",
       "searchTopK": "Search top-K",
-      "searchTopKHint": "Number of results returned by search."
+      "searchTopKHint": "Number of results returned by search.",
+      "dataDir": "Data folder",
+      "dataDirHint": "Folder for the JSON store file (files.json). Changes apply at runtime.",
+      "dataDirPlaceholder": "e.g. /app/data"
     },
     "qdrant": {
       "title": "Qdrant",
@@ -102,7 +170,11 @@
       "urlHint": "Base URL of the Qdrant server (e.g. http://localhost).",
       "port": "Qdrant port",
       "collection": "Collection",
-      "collectionHint": "Name of the Qdrant collection to search."
+      "collectionHint": "Name of the Qdrant collection to search.",
+      "retryDelaySec": "Retry delay (seconds)",
+      "retryDelaySecHint": "Wait time between connection attempts.",
+      "maxRetries": "Max retries",
+      "maxRetriesHint": "Max consecutive failed attempts before giving up. 0 = unlimited."
     },
     "embeddings": {
       "title": "Embeddings",
@@ -130,6 +202,27 @@
       "allowedHosts": "Allowed hosts",
       "allowedHostsHint": "Comma-separated list of allowed MCP hosts.",
       "allowedHostsPlaceholder": "e.g. localhost, 192.168.1.10"
+    },
+    "storage": {
+      "title": "File management",
+      "enabled": "Enabled",
+      "enabledHint": "Watches the storage folder and processes changes.",
+      "root": "Root folder",
+      "rootHint": "Path of the storage volume (in the container). Changing it restarts the watcher.",
+      "rootPlaceholder": "e.g. /app/storage",
+      "concurrency": "Concurrency",
+      "concurrencyHint": "Number of jobs processed in parallel (1 = sequential).",
+      "dummyDelaySec": "Dummy delay (seconds)",
+      "dummyDelaySecHint": "Wait time of the dummy step per file and event.",
+      "retryDelaySec": "Retry wait time (seconds)",
+      "retryDelaySecHint": "Wait time before a failed job is restarted.",
+      "maxRetries": "Max retries",
+      "maxRetriesHint": "How often a job is restarted after an error (0 = no retry).",
+      "maxFileSizeMb": "Max file size (MB)",
+      "maxFileSizeMbHint": "Larger files are skipped.",
+      "ignore": "Ignore",
+      "ignoreHint": "Comma-separated glob patterns.",
+      "ignorePlaceholder": "e.g. **/.git/**, **/node_modules/**"
     },
     "ui": {
       "title": "UI"

@@ -1,40 +1,192 @@
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { QdrantClient } from '@qdrant/js-client-rest';
 
 /**
  * Qdrant client wrapper for upserting vectors, searching, and managing collections.
+ *
+ * Owns the connection lifecycle:
+ *   - tries to connect on start and after every config change
+ *   - retries on failure (wait `retryDelaySec`, up to `maxRetries` consecutive failures)
+ *   - exposes a live status (attempts, next attempt, …) for the dashboard
+ *   - emits a `status` event on every connection attempt
  */
-class Qdrant {
+class Qdrant extends EventEmitter {
     /**
      * @param {object} params - Configuration parameters
      * @param {string} params.url - Qdrant server URL
      * @param {number} [params.port=80] - Qdrant port
      * @param {string} [params.collection='research'] - Collection name
+     * @param {number} [params.retryDelaySec=10] - Wait between connection attempts (seconds)
+     * @param {number} [params.maxRetries=0] - Max consecutive failed attempts (0 = unlimited)
      * @param {Logger} [params.logger] - Logger instance
      */
     constructor({
         url,
         port = 80,
         collection = 'research',
+        retryDelaySec = 10,
+        maxRetries = 0,
         logger
     } = {}) {
-        this.url = url;
-        this.port = port;
-        this.collection = collection;
+        super();
         this.label = '[Qdrant]';
         this.logger = logger || { log: () => {}, error: () => {} };
 
-        this.params = {
-            url: url,
-            port: port,
+        this.url = url;
+        this.port = port;
+        this.collection = collection;
+        this.retryDelaySec = retryDelaySec;
+        this.maxRetries = maxRetries;
+
+        this.client = this._createClient();
+
+        // Live-Status (für das Dashboard).
+        this.connected = false;
+        this.version = null;
+        this.error = null;
+        this.attempts = 0;
+        this.consecutiveFailures = 0;
+        this.gaveUp = false;
+        this.lastAttemptAt = null;
+        this.nextAttemptAt = null;
+
+        this._timer = null;
+        this._connecting = false;
+        this._stopped = false;
+
+        this._scheduleNext(0); // sofortiger erster Verbindungsversuch
+    }
+
+    /** Erzeugt einen QdrantClient für die aktuelle URL/Port. */
+    _createClient() {
+        return new QdrantClient({
+            url: this.url,
+            port: this.port,
             checkCompatibility: false
+        });
+    }
+
+    /** Plant den nächsten Verbindungsversuch nach `delayMs` Millisekunden. */
+    _scheduleNext(delayMs) {
+        if (this._stopped) return;
+        if (this._timer) clearTimeout(this._timer);
+        this.nextAttemptAt = new Date(Date.now() + delayMs).toISOString();
+        this._timer = setTimeout(() => this._attempt(), delayMs);
+        if (this._timer.unref) this._timer.unref();
+    }
+
+    /** Einmaliger Verbindungsversuch. Bei Fehler: nächsten planen (wenn erlaubt). */
+    async _attempt() {
+        if (this._connecting) return;
+        this._connecting = true;
+        try {
+            if (!this.url) {
+                // Keine URL konfiguriert → nichts zu verbinden.
+                this.connected = false;
+                this.version = null;
+                this.error = 'no URL configured';
+                this.nextAttemptAt = null;
+                this._emitStatus();
+                return;
+            }
+
+            this.attempts += 1;
+            this.lastAttemptAt = new Date().toISOString();
+            this.nextAttemptAt = null;
+
+            try {
+                const info = await this.client.versionInfo();
+                this.version = info?.version || null;
+                this.connected = true;
+                this.error = null;
+                this.consecutiveFailures = 0;
+                this.gaveUp = false;
+                this.logger.log(this.label, `Verbunden (Versuch ${this.attempts}), Version: ${this.version}`);
+            } catch (err) {
+                this.connected = false;
+                this.version = null;
+                this.error = err?.cause?.message || err?.message || 'unreachable';
+                this.consecutiveFailures += 1;
+                this.logger.error(this.label, `Qdrant nicht erreichbar (Versuch ${this.attempts}): ${this.error}`);
+
+                if (this.maxRetries > 0 && this.consecutiveFailures >= this.maxRetries) {
+                    this.gaveUp = true;
+                    this.logger.error(this.label, `Max. ${this.maxRetries} Fehlversuche erreicht – Reconnect gestoppt.`);
+                } else {
+                    this._scheduleNext(this.retryDelaySec * 1000);
+                }
+            }
+        } finally {
+            this._connecting = false;
+        }
+        this._emitStatus();
+    }
+
+    /** `status`-Event an alle Listener senden. */
+    _emitStatus() {
+        this.emit('status', this.getStatus());
+    }
+
+    /**
+     * Aktueller Verbindungs-Status (für das Dashboard).
+     * @returns {object}
+     */
+    getStatus() {
+        return {
+            connected: this.connected,
+            version: this.version,
+            error: this.error,
+            attempts: this.attempts,
+            consecutiveFailures: this.consecutiveFailures,
+            gaveUp: this.gaveUp,
+            lastAttemptAt: this.lastAttemptAt,
+            nextAttemptAt: this.nextAttemptAt,
+            retryDelaySec: this.retryDelaySec,
+            maxRetries: this.maxRetries
         };
-        this.client = new QdrantClient(this.params);
+    }
 
-        this.client.versionInfo()
-            .then(data => this.logger.log(this.label, 'Version:', data.version))
-            .catch(err => this.logger.error(this.label, 'Qdrant nicht erreichbar:', err?.cause?.message || err.message));
+    /**
+     * Konfiguration (URL/Port/Collection/Retry) zur Laufzeit ändern und sofort neu verbinden.
+     * @param {{url?: string, port?: number, collection?: string, retryDelaySec?: number, maxRetries?: number}} cfg
+     */
+    updateConfig(cfg = {}) {
+        if (cfg.url !== undefined) this.url = cfg.url;
+        if (cfg.port !== undefined) this.port = cfg.port;
+        if (cfg.collection !== undefined) this.collection = cfg.collection;
+        if (cfg.retryDelaySec !== undefined) this.retryDelaySec = cfg.retryDelaySec;
+        if (cfg.maxRetries !== undefined) this.maxRetries = cfg.maxRetries;
 
+        this.client = this._createClient();
+
+        // Status zurücksetzen → frischer Start mit der neuen Konfiguration.
+        this.connected = false;
+        this.version = null;
+        this.error = null;
+        this.attempts = 0;
+        this.consecutiveFailures = 0;
+        this.gaveUp = false;
+        this.lastAttemptAt = null;
+
+        this._scheduleNext(0); // sofortiger Verbindungsversuch
+    }
+
+    /** Erzwingt einen sofortigen Verbindungsversuch (ohne Konfig-Änderung). */
+    reconnect() {
+        this.gaveUp = false;
+        this._scheduleNext(0);
+    }
+
+    /** Stoppt den Reconnect-Loop und entfernt alle Listener. */
+    stop() {
+        this._stopped = true;
+        if (this._timer) {
+            clearTimeout(this._timer);
+            this._timer = null;
+        }
+        this.nextAttemptAt = null;
+        this.removeAllListeners();
     }
 
     /**

@@ -86,6 +86,9 @@ export class Server {
             this.router?.logsWs?.close(); // WS-Clients terminate (sonst hängt httpServer.close())
             this.router?.dashboardWs?.close();
             this.router?.dashboardService?.stop();
+            this.search?.qdrant?.stop(); // Reconnect-Loop stoppen
+            this.router?.filesWs?.close();
+            this.router?.fileService?.stop();
             this.router?.mcpSessions?.stop();
             this.logService.stop();      // Listener entfernen
             this.httpServer.close(() => process.exit(0));

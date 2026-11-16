@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "Dashboard",
+    "files": "Dateien",
     "settings": "Einstellungen",
     "logs": "Logs",
     "about": "Über"
@@ -30,7 +31,14 @@
       "endpoint": "Endpunkt",
       "collection": "Collection",
       "version": "Version",
-      "points": "Punkte"
+      "points": "Punkte",
+      "attempts": "Versuche",
+      "nextAttempt": "Nächster Versuch",
+      "nextAttemptIn": "in {{sec}}s",
+      "nextAttemptNow": "jetzt",
+      "retryDelay": "Wartezeit",
+      "maxRetries": "Max. Versuche",
+      "unlimited": "unbegrenzt"
     },
     "server": {
       "title": "Server",
@@ -45,6 +53,60 @@
       "title": "Modelle",
       "embeddings": "Embeddings",
       "chat": "Chat"
+    }
+  },
+  "files": {
+    "title": "Dateien",
+    "subtitle": "Live-Datei-Verarbeitung",
+    "live": "Live",
+    "offline": "Offline",
+    "updated": "Aktualisiert",
+    "loading": "Lädt…",
+    "error": "Verbindung zum Files-Stream fehlgeschlagen.",
+    "stats": {
+      "pending": "Ausstehend",
+      "processing": "In Bearbeitung",
+      "done": "Fertig",
+      "error": "Fehler",
+      "cancelled": "Abgebrochen"
+    },
+    "queue": {
+      "title": "Verarbeitungs-Queue",
+      "path": "Pfad",
+      "event": "Event",
+      "status": "Status",
+      "enqueuedAt": "Eingestellt",
+      "actions": "Aktionen",
+      "pause": "Pause",
+      "resume": "Fortsetzen",
+      "abort": "Abbrechen",
+      "remove": "Entfernen"
+    },
+    "files": {
+      "title": "Dateien",
+      "path": "Pfad",
+      "size": "Größe",
+      "mtime": "Geändert",
+      "status": "Status",
+      "lastEvent": "Letztes Event"
+    },
+    "event": {
+      "create": "Erstellt",
+      "modify": "Geändert",
+      "delete": "Gelöscht"
+    },
+    "status": {
+      "pending": "Ausstehend",
+      "processing": "In Bearbeitung",
+      "done": "Fertig",
+      "error": "Fehler",
+      "cancelled": "Abgebrochen",
+      "deleted": "Gelöscht",
+      "skipped": "Übersprungen"
+    },
+    "empty": {
+      "queue": "Keine Jobs in der Queue.",
+      "files": "Noch keine Dateien verarbeitet."
     }
   },
   "pages": {
@@ -85,16 +147,22 @@
       "embeddings": "Embeddings",
       "chat": "Chat",
       "mcp": "MCP",
+      "storage": "Dateien",
       "ui": "UI"
     },
     "server": {
       "title": "Server",
+      "configPath": "Konfigurationsdatei",
+      "configPathHint": "Pfad zur config.json. Kann nur über die Umgebungsvariable CONFIG_PATH geändert werden.",
       "port": "Server-Port",
       "portHint": "Änderungen erfordern einen Neustart.",
       "verbose": "Ausführliche Protokollierung",
       "verboseHint": "Detailliertere Server-Logs.",
       "searchTopK": "Suche Top-K",
-      "searchTopKHint": "Anzahl der von der Suche zurückgegebenen Ergebnisse."
+      "searchTopKHint": "Anzahl der von der Suche zurückgegebenen Ergebnisse.",
+      "dataDir": "Data-Ordner",
+      "dataDirHint": "Ordner für die JSON-Store-Datei (files.json). Wechsel wirkt zur Laufzeit.",
+      "dataDirPlaceholder": "z. B. /app/data"
     },
     "qdrant": {
       "title": "Qdrant",
@@ -102,7 +170,11 @@
       "urlHint": "Basis-URL des Qdrant-Servers (z. B. http://localhost).",
       "port": "Qdrant-Port",
       "collection": "Collection",
-      "collectionHint": "Name der zu durchsuchenden Qdrant-Collection."
+      "collectionHint": "Name der zu durchsuchenden Qdrant-Collection.",
+      "retryDelaySec": "Wartezeit (Sekunden)",
+      "retryDelaySecHint": "Wartezeit zwischen den Verbindungsversuchen.",
+      "maxRetries": "Max. Versuche",
+      "maxRetriesHint": "Max. aufeinanderfolgende Fehlversuche, bevor aufgegeben wird. 0 = unbegrenzt."
     },
     "embeddings": {
       "title": "Embeddings",
@@ -131,11 +203,32 @@
       "allowedHostsHint": "Komma-getrennte Liste erlaubter MCP-Hosts.",
       "allowedHostsPlaceholder": "z. B. localhost, 192.168.1.10"
     },
+    "storage": {
+      "title": "Datei-Verwaltung",
+      "enabled": "Aktiviert",
+      "enabledHint": "Überwacht den Storage-Ordner und verarbeitet Änderungen.",
+      "root": "Root-Ordner",
+      "rootHint": "Pfad des Storage-Volumes (im Container). Wechsel startet den Watcher neu.",
+      "rootPlaceholder": "z. B. /app/storage",
+      "concurrency": "Gleichzeitigkeit",
+      "concurrencyHint": "Anzahl parallel verarbeiteter Jobs (1 = sequenziell).",
+      "dummyDelaySec": "Dummy-Delay (Sekunden)",
+      "dummyDelaySecHint": "Wartezeit des Dummy-Schritts pro File und Event.",
+      "retryDelaySec": "Retry-Wartezeit (Sekunden)",
+      "retryDelaySecHint": "Wartezeit bis ein fehlgeschlagener Job erneut gestartet wird.",
+      "maxRetries": "Max. Retries",
+      "maxRetriesHint": "Wie oft ein Job nach Fehler erneut gestartet wird (0 = kein Retry).",
+      "maxFileSizeMb": "Max. Dateigröße (MB)",
+      "maxFileSizeMbHint": "Größere Dateien werden übersprungen.",
+      "ignore": "Ignorieren",
+      "ignoreHint": "Komma-getrennte Glob-Patterns.",
+      "ignorePlaceholder": "z. B. **/.git/**, **/node_modules/**"
+    },
     "ui": {
       "title": "UI"
     },
     "fields": {
-      "radiusFactor": "Abgerundung",
+      "radiusFactor": "Eckenrundung",
       "primaryHue": "Primärfarbe",
       "secondaryHue": "Sekundärfarbe"
     }

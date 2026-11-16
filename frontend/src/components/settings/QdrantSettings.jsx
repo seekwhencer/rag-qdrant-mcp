@@ -7,6 +7,8 @@ const FIELDS = [
   { key: 'url', type: 'text', label: 'settings.qdrant.url', hint: 'settings.qdrant.urlHint' },
   { key: 'port', type: 'number', label: 'settings.qdrant.port', min: 1, max: 65535, step: 1 },
   { key: 'collection', type: 'text', label: 'settings.qdrant.collection', hint: 'settings.qdrant.collectionHint' },
+  { key: 'retryDelaySec', type: 'number', label: 'settings.qdrant.retryDelaySec', hint: 'settings.qdrant.retryDelaySecHint', min: 0, max: 3600, step: 1 },
+  { key: 'maxRetries', type: 'number', label: 'settings.qdrant.maxRetries', hint: 'settings.qdrant.maxRetriesHint', min: 0, max: 100, step: 1 },
 ];
 const FIELD_KEYS = FIELDS.map((f) => f.key);
 

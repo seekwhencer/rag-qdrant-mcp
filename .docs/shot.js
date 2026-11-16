@@ -61,7 +61,7 @@ async function shot(page, file) {
   log(file);
 }
 
-const CATEGORIES = ['server', 'qdrant', 'embeddings', 'chat', 'mcp', 'ui'];
+const CATEGORIES = ['server', 'storage', 'qdrant', 'embeddings', 'chat', 'mcp', 'ui'];
 
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
@@ -87,13 +87,19 @@ const CATEGORIES = ['server', 'qdrant', 'embeddings', 'chat', 'mcp', 'ui'];
       await shot(page, path.join(OUT, `settings-${cat}-${theme}.png`));
     }
 
-    // 3) Logs
+    // 3) Files
+    await goto(page, BASE + '/files');
+    await page.waitForSelector('.files, .files__loading', { timeout: 15000 });
+    await page.waitForTimeout(900);
+    await shot(page, path.join(OUT, `files-${theme}.png`));
+
+    // 4) Logs
     await goto(page, BASE + '/logs');
     await page.waitForSelector('.logviewer, .logviewer__state', { timeout: 15000 });
     await page.waitForTimeout(900);
     await shot(page, path.join(OUT, `logs-${theme}.png`));
 
-    // 4) About
+    // 5) About
     await goto(page, BASE + '/about');
     await page.waitForSelector('.about__hero', { timeout: 15000 });
     await page.waitForTimeout(400);

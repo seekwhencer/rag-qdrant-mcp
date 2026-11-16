@@ -140,7 +140,7 @@
 
 .dash-card__value {
   margin: 0;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--color-text);
   text-align: right;

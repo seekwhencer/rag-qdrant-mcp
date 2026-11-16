@@ -5,6 +5,7 @@ export default function TopNav() {
   const { t } = useTranslation();
   const location = useLocation();
   const isDashboard = location.pathname.startsWith('/dashboard');
+  const isFiles = location.pathname.startsWith('/files');
   const isSettings = location.pathname.startsWith('/settings');
   const isLogs = location.pathname.startsWith('/logs');
 
@@ -15,6 +16,12 @@ export default function TopNav() {
         className={() => `topnav__link${isDashboard ? ' topnav__link--active' : ''}`}
       >
         {t('nav.dashboard')}
+      </NavLink>
+      <NavLink
+        to="/files"
+        className={() => `topnav__link${isFiles ? ' topnav__link--active' : ''}`}
+      >
+        {t('nav.files')}
       </NavLink>
       <NavLink
         to="/settings/server"

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import DashboardPage from './pages/DashboardPage.jsx';
+import FilesPage from './pages/FilesPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import AboutPage from './pages/AboutPage.jsx';
 import LogsPage from './pages/LogsPage.jsx';
@@ -44,6 +45,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/files" element={<FilesPage />} />
         <Route path="/settings/:category?" element={<SettingsPage />} />
         <Route path="/logs" element={<LogsPage />} />
         <Route path="/about" element={<AboutPage />} />

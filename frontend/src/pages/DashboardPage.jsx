@@ -3,6 +3,7 @@ import { Server, Database, Cpu } from 'lucide-react';
 import { useDashboardStream } from '../hooks/useDashboardStream.js';
 import InfoCard from '../components/dashboard/InfoCard.jsx';
 import McpCard from '../components/dashboard/McpCard.jsx';
+import Countdown from '../components/dashboard/Countdown.jsx';
 import { formatUptime, formatBytes, formatTime } from '../utils/format.js';
 
 export default function DashboardPage() {
@@ -57,7 +58,23 @@ export default function DashboardPage() {
                 },
                 { label: t('dashboard.qdrant.collection'), value: qdrant?.collection || '—', mono: true },
                 { label: t('dashboard.qdrant.version'), value: qdrant?.version || '—', mono: true },
-                { label: t('dashboard.qdrant.points'), value: qdrant?.points ?? '—', mono: true }
+                { label: t('dashboard.qdrant.points'), value: qdrant?.points ?? '—', mono: true },
+                { label: t('dashboard.qdrant.attempts'), value: qdrant?.attempts ?? 0, mono: true },
+                {
+                  label: t('dashboard.qdrant.nextAttempt'),
+                  value: <Countdown to={qdrant?.nextAttemptAt} />,
+                  mono: true
+                },
+                {
+                  label: t('dashboard.qdrant.retryDelay'),
+                  value: `${qdrant?.retryDelaySec ?? '—'}s`,
+                  mono: true
+                },
+                {
+                  label: t('dashboard.qdrant.maxRetries'),
+                  value: qdrant?.maxRetries === 0 ? t('dashboard.qdrant.unlimited') : qdrant?.maxRetries ?? '—',
+                  mono: true
+                }
               ]}
             />
 

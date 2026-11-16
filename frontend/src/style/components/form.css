@@ -69,13 +69,6 @@
   background-color: var(--color-surface);
 }
 
-.settings__field--check input[type='checkbox'] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--color-primary);
-  cursor: pointer;
-}
-
 /* ===== Textareas ===== */
 .settings__textarea {
   font-family: var(--font-mono);

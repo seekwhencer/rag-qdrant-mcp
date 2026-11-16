@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 
 const clientMock = vi.hoisted(() => ({
@@ -112,5 +112,111 @@ describe('Qdrant', () => {
         const q = new Qdrant({ url: 'http://q', collection: 'c' });
         await expect(q.ensureCollection([0.1])).resolves.toBeUndefined();
         expect(clientMock.createCollection).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('Qdrant reconnect', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('connects on the first attempt when reachable', async () => {
+        clientMock.versionInfo.mockResolvedValue({ version: '1.12.0' });
+        const q = new Qdrant({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(q.connected).toBe(true);
+        expect(q.version).toBe('1.12.0');
+        expect(q.attempts).toBe(1);
+        expect(q.nextAttemptAt).toBeNull();
+        q.stop();
+    });
+
+    it('retries on failure and gives up after maxRetries consecutive failures', async () => {
+        clientMock.versionInfo.mockRejectedValue({ message: 'ECONNREFUSED' });
+        const q = new Qdrant({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 3 });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(q.connected).toBe(false);
+        expect(q.attempts).toBe(1);
+        expect(q.nextAttemptAt).not.toBeNull();
+        await vi.advanceTimersByTimeAsync(10 * 1000);
+        expect(q.attempts).toBe(2);
+        await vi.advanceTimersByTimeAsync(10 * 1000);
+        expect(q.attempts).toBe(3);
+        expect(q.gaveUp).toBe(true);
+        expect(q.nextAttemptAt).toBeNull();
+        q.stop();
+    });
+
+    it('keeps retrying while maxRetries is 0 (unlimited)', async () => {
+        clientMock.versionInfo.mockRejectedValue({ message: 'ECONNREFUSED' });
+        const q = new Qdrant({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(q.attempts).toBe(1);
+        expect(q.gaveUp).toBe(false);
+        await vi.advanceTimersByTimeAsync(10 * 1000);
+        expect(q.attempts).toBe(2);
+        expect(q.gaveUp).toBe(false);
+        await vi.advanceTimersByTimeAsync(10 * 1000);
+        expect(q.attempts).toBe(3);
+        expect(q.gaveUp).toBe(false);
+        q.stop();
+    });
+
+    it('does not attempt when no URL is configured', async () => {
+        const q = new Qdrant({ url: '', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(q.connected).toBe(false);
+        expect(q.error).toBe('no URL configured');
+        expect(q.attempts).toBe(0);
+        expect(q.nextAttemptAt).toBeNull();
+        q.stop();
+    });
+
+    it('updateConfig resets the state and reconnects with the new settings', async () => {
+        clientMock.versionInfo.mockRejectedValue({ message: 'ECONNREFUSED' });
+        const q = new Qdrant({ url: 'http://old', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(q.attempts).toBe(1);
+        expect(q.connected).toBe(false);
+
+        clientMock.versionInfo.mockResolvedValue({ version: '1.13.0' });
+        q.updateConfig({ url: 'http://new', port: 6333, collection: 'research', retryDelaySec: 5, maxRetries: 0 });
+        expect(q.attempts).toBe(0);
+        expect(q.connected).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(q.connected).toBe(true);
+        expect(q.version).toBe('1.13.0');
+        expect(q.attempts).toBe(1);
+        q.stop();
+    });
+
+    it('emits a status event on each attempt', async () => {
+        clientMock.versionInfo.mockRejectedValue({ message: 'ECONNREFUSED' });
+        const q = new Qdrant({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 0 });
+        const events = [];
+        q.on('status', (st) => events.push(st));
+        await vi.advanceTimersByTimeAsync(1);
+        expect(events.length).toBe(1);
+        expect(events[0].connected).toBe(false);
+        expect(events[0].attempts).toBe(1);
+        q.stop();
+    });
+
+    it('getStatus returns the full status object', async () => {
+        clientMock.versionInfo.mockResolvedValue({ version: '1.12.0' });
+        const q = new Qdrant({ url: 'http://q', port: 80, collection: 'research', retryDelaySec: 10, maxRetries: 5 });
+        await vi.advanceTimersByTimeAsync(1);
+        const st = q.getStatus();
+        expect(st.connected).toBe(true);
+        expect(st.version).toBe('1.12.0');
+        expect(st.attempts).toBe(1);
+        expect(st.retryDelaySec).toBe(10);
+        expect(st.maxRetries).toBe(5);
+        expect(st.gaveUp).toBe(false);
+        q.stop();
     });
 });

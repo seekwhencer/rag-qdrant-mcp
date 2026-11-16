@@ -20,19 +20,6 @@ export default function UiSettings() {
           <div className="settings__grid">
             <div className="settings__field">
               <Slider
-                id="ui-radius"
-                name="radiusFactor"
-                label={t('settings.fields.radiusFactor')}
-                value={appSettings.radiusFactor}
-                min={0}
-                max={1}
-                step={0.1}
-                onChange={(v) => setAppSettings({ radiusFactor: v })}
-                previewStyle={{ borderRadius: radiusForFactor(appSettings.radiusFactor) }}
-              />
-            </div>
-            <div className="settings__field">
-              <Slider
                 id="ui-primary"
                 name="primaryHue"
                 label={t('settings.fields.primaryHue')}
@@ -57,6 +44,19 @@ export default function UiSettings() {
                 onChange={(v) => setAppSettings({ secondaryHue: v })}
                 previewStyle={{ backgroundColor: secondaryColorForHue(appSettings.secondaryHue) }}
                 style={{ '--slider-accent': secondaryColorForHue(appSettings.secondaryHue) }}
+              />
+            </div>
+            <div className="settings__field">
+              <Slider
+                id="ui-radius"
+                name="radiusFactor"
+                label={t('settings.fields.radiusFactor')}
+                value={appSettings.radiusFactor}
+                min={0}
+                max={1}
+                step={0.1}
+                onChange={(v) => setAppSettings({ radiusFactor: v })}
+                previewStyle={{ borderRadius: radiusForFactor(appSettings.radiusFactor) }}
               />
             </div>
           </div>

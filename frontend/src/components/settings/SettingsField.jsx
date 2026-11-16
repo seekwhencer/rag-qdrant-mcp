@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import EnvLockBadge from './EnvLockBadge.jsx';
+import Toggle from '../ui/Toggle.jsx';
 
 /**
  * Rendert ein einzelnes Settings-Feld (text/number/checkbox/textarea/select/list).
@@ -19,17 +20,18 @@ export default function SettingsField({ field, value, onChange, locked }) {
 
   if (field.type === 'checkbox') {
     return (
-      <label className={`${baseClass} settings__field--check`}>
-        <input
-          type="checkbox"
+      <div className={`${baseClass} settings__field--check`}>
+        <Toggle
           checked={Boolean(value)}
+          onChange={onChange}
           disabled={isLocked}
-          onChange={(e) => onChange(e.target.checked)}
+          label={t(field.label)}
+          labelExtra={lockBadge}
+          id={field.key}
+          name={field.key}
         />
-        <span>{t(field.label)}</span>
-        {lockBadge}
         {hint}
-      </label>
+      </div>
     );
   }
 
@@ -100,6 +102,21 @@ export default function SettingsField({ field, value, onChange, locked }) {
           placeholder={field.placeholder ? t(field.placeholder) : undefined}
           disabled={isLocked}
           onChange={(e) => onChange(e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
+        />
+        {hint}
+      </label>
+    );
+  }
+
+  if (field.type === 'readonly') {
+    return (
+      <label className={`${baseClass} settings__field--full`}>
+        <span>{t(field.label)} {lockBadge}</span>
+        <input
+          type="text"
+          value={typeof value === 'string' ? value : ''}
+          disabled
+          readOnly
         />
         {hint}
       </label>

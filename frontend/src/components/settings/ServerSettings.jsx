@@ -5,10 +5,19 @@ import useSettingsGroup from '../../hooks/useSettingsGroup.js';
 
 const FIELDS = [
   { key: 'serverPort', type: 'number', label: 'settings.server.port', hint: 'settings.server.portHint', min: 1, max: 65535, step: 1 },
+  { key: 'dataDir', type: 'text', label: 'settings.server.dataDir', hint: 'settings.server.dataDirHint', placeholder: 'settings.server.dataDirPlaceholder' },
   { key: 'verbose', type: 'checkbox', label: 'settings.server.verbose', hint: 'settings.server.verboseHint' },
   { key: 'searchTopK', type: 'number', label: 'settings.server.searchTopK', hint: 'settings.server.searchTopKHint', min: 1, step: 1 },
 ];
 const FIELD_KEYS = FIELDS.map((f) => f.key);
+
+// Read-only: Config-Pfad (CONFIG_PATH-Env oder Default) – nur Anzeige, nie per UI änderbar.
+const CONFIG_PATH_FIELD = {
+  key: 'configPath',
+  type: 'readonly',
+  label: 'settings.server.configPath',
+  hint: 'settings.server.configPathHint',
+};
 
 export default function ServerSettings({ settings, loading, error, saving, saved, save }) {
   const { t } = useTranslation();
@@ -25,6 +34,11 @@ export default function ServerSettings({ settings, loading, error, saving, saved
               <h3>{t('settings.server.title')}</h3>
             </div>
             <div className="settings__grid">
+              <SettingsField
+                field={CONFIG_PATH_FIELD}
+                value={settings?.configPath}
+                locked="CONFIG_PATH"
+              />
               {FIELDS.map((f) => (
                 <SettingsField
                   key={f.key}

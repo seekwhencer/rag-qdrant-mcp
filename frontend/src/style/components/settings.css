@@ -96,6 +96,9 @@
   margin: 0;
   font-size: var(--fs-xs);
   color: var(--color-text-secondary);
+  flex-basis: 100%;
+  /* Optional: Falls es noch margins/paddings gibt, die die 100% sprengen */
+  box-sizing: border-box;
 }
 
 .settings__grid {
@@ -118,11 +121,10 @@
 
 .settings__field--check {
   flex-direction: row;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  color: var(--color-text);
   align-items: self-start;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--color-text);
 }
 
 /* Env-locked fields (set via environment variable → not editable) */

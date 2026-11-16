@@ -31,7 +31,7 @@ A Node.js service that provides **RAG** (Retrieval-Augmented Generation) over a
 
 - Vector search + LLM answers over the documents stored in Qdrant.
 - An MCP server over [Streamable HTTP](https://modelcontextprotocol.io/docs/concepts/transports#streamable-http-transport) at `/mcp`, exposing `ask` and `search` tools for use by AI assistants such as Claude Code, Cursor, or any MCP-compatible client.
-- A Vite + React web UI with a full settings panel (App, Qdrant, Embeddings, Chat, MCP, UI) served by the same Express server.
+- A Vite + React web UI with a full settings panel (Server, Files, Qdrant, Embeddings, Chat, MCP, UI) served by the same Express server.
 
 ![Dashboard (dark)](.docs/screenshots/dashboard-dark.png)
 
@@ -77,6 +77,7 @@ passed via `compose.yml` using a `.env` file:
 | `SERVER_PORT`      | Port the service listens on (default: `3000`)                                                                         |
 | `VERBOSE`          | Enable verbose logging (`true`/`false`, default: `false`)                                                             |
 | `SEARCH_TOP_K`     | Number of chunks retrieved from Qdrant for a RAG answer (default: `10`)                                               |
+| `DATA_DIR`         | Data folder holding the JSON store file `files.json` (default: one level above `server/`, `/app/data` in Docker)      |
 | `QDRANT_URL`       | Base URL of the Qdrant instance                                                                                       |
 | `QDRANT_PORT`      | Port of the Qdrant instance (default: `80`)                                                                           |
 | `QDRANT_COLLECTION`| Name of the Qdrant collection (default: `research`)                                                                   |
@@ -99,6 +100,36 @@ fallbacks for `EMBEDDINGS_URL`, `EMBEDDINGS_API` and `EMBEDDINGS_MODEL`.
 Default values are applied in memory when `config.json` is absent. The file is
 not written automatically; call `Config.saveDefaults()` (or run
 `node index.js --init-config`) to write a sample `config.json` to the `CONFIG_PATH` location.
+
+## File Management
+
+The service watches a storage folder (a Docker shared volume) for file changes and
+processes them through a background queue. Every `create`, `modify` and `delete`
+event enqueues a job; a dummy processing step waits a configurable number of
+seconds per file and event before the job is marked done. The folder structure is
+mirrored in a JSON store (`files.json` in the data folder, outside the storage
+root) with per-file metadata — deleted files are kept as tombstones, never
+removed. The data folder sits one level above `server/` (same level as
+`frontend/` and `server/`); its location is changeable at runtime in the web
+UI under Settings → Server (`dataDir`).
+
+- Drop files into the `storage/` folder (mounted at `/app/storage` in the
+  container) to enqueue them. Files already present are picked up on startup via
+  an initial scan.
+- The queue is live in the web UI under `/files` (WebSocket updates, like the
+  Dashboard and Logs pages): stats, the queue table, and the mirrored file list.
+- You can pause/resume the queue, abort pending jobs, and remove individual
+  pending jobs from the UI.
+- Failed jobs are retried automatically up to `STORAGE_MAX_RETRIES` times,
+  waiting `STORAGE_RETRY_DELAY_SEC` seconds between attempts.
+
+| Variable                  | Description                                                                                     |
+| ------------------------- | ----------------------------------------------------------------------------------------------- |
+| `STORAGE_ROOT`            | Root folder watched by the file watcher (default: `./storage`, `/app/storage` in Docker)       |
+| `STORAGE_CONCURRENCY`     | Number of jobs processed in parallel (default: `1` = sequential)                                |
+| `STORAGE_DUMMY_DELAY_SEC` | Dummy processing delay per file and event, in seconds (default: `2`)                            |
+| `STORAGE_RETRY_DELAY_SEC` | Wait time before a failed job is retried, in seconds (default: `5`)                             |
+| `STORAGE_MAX_RETRIES`     | Max retries per job (default: `3`, `0` disables retries)                                        |
 
 ## MCP (Model Context Protocol)
 
@@ -176,7 +207,7 @@ node index.js
 ### Frontend
 
 - The service ships a Vite + React (19) web UI in `frontend/` with a full settings
-  panel (App, Qdrant, Embeddings, Chat, MCP, UI) and an About page.
+  panel (Server, Files, Qdrant, Embeddings, Chat, MCP, UI) and an About page.
 - The Express server serves the UI transparently: in development it runs the Vite
   dev server as middleware (hot reload), in production it serves the built files
   from `frontend/dist` with a SPA fallback (`server/src/Router/FrontendRouter.js`).
@@ -188,11 +219,13 @@ node index.js
 | Dashboard          | ![Dashboard (light)](.docs/screenshots/dashboard-light.png)                              | ![Dashboard (dark)](.docs/screenshots/dashboard-dark.png)                               |
 | Logs               | ![Logs (light)](.docs/screenshots/logs-light.png)                                        | ![Logs (dark)](.docs/screenshots/logs-dark.png)                                         |
 | Settings — Server  | ![Settings Server (light)](.docs/screenshots/settings-server-light.png)                  | ![Settings Server (dark)](.docs/screenshots/settings-server-dark.png)                   |
+| Settings — Files   | ![Settings Files (light)](.docs/screenshots/settings-storage-light.png)                  | ![Settings Files (dark)](.docs/screenshots/settings-storage-dark.png)                   |
 | Settings — Qdrant  | ![Settings Qdrant (light)](.docs/screenshots/settings-qdrant-light.png)                  | ![Settings Qdrant (dark)](.docs/screenshots/settings-qdrant-dark.png)                   |
 | Settings — Embeddings | ![Settings Embeddings (light)](.docs/screenshots/settings-embeddings-light.png)        | ![Settings Embeddings (dark)](.docs/screenshots/settings-embeddings-dark.png)           |
 | Settings — Chat    | ![Settings Chat (light)](.docs/screenshots/settings-chat-light.png)                      | ![Settings Chat (dark)](.docs/screenshots/settings-chat-dark.png)                       |
 | Settings — MCP     | ![Settings MCP (light)](.docs/screenshots/settings-mcp-light.png)                        | ![Settings MCP (dark)](.docs/screenshots/settings-mcp-dark.png)                         |
 | Settings — UI      | ![Settings UI (light)](.docs/screenshots/settings-ui-light.png)                          | ![Settings UI (dark)](.docs/screenshots/settings-ui-dark.png)                           |
+| Files              | ![Files (light)](.docs/screenshots/files-light.png)                                      | ![Files (dark)](.docs/screenshots/files-dark.png)                                       |
 | About              | ![About (light)](.docs/screenshots/about-light.png)                                      | ![About (dark)](.docs/screenshots/about-dark.png)                                       |
 
 #### Develop

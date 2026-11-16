@@ -10,10 +10,20 @@ services:
     ports:
       - ${SERVER_PORT}:${SERVER_PORT}
     volumes:
-      - ./:/app
+      - ./server:/app/server
+      - ./frontend:/app/frontend
       - /app/server/node_modules
       - /app/frontend/node_modules
+      - ./storage:/storage
+      - ./data:/data
     environment:
       - NODE_ENV=development
       - VITE_WS_PORT=${SERVER_PORT}
       - SERVER_PORT=${SERVER_PORT}
+      - STORAGE_ROOT=/storage
+      - DATA_DIR=/data
+      - CONFIG_PATH=/data/config.json
+      - STORAGE_CONCURRENCY=${STORAGE_CONCURRENCY:-1}
+      - STORAGE_DUMMY_DELAY_SEC=${STORAGE_DUMMY_DELAY_SEC:-2}
+      - STORAGE_RETRY_DELAY_SEC=${STORAGE_RETRY_DELAY_SEC:-5}
+      - STORAGE_MAX_RETRIES=${STORAGE_MAX_RETRIES:-3}

@@ -15,8 +15,19 @@ class App {
             url: config.qdrant.url,
             port: config.qdrant.port,
             collection: config.qdrant.collection,
+            retryDelaySec: config.qdrant.retryDelaySec,
+            maxRetries: config.qdrant.maxRetries,
             logger: this.logger
         });
+
+        // Qdrant-Config geändert (z. B. URL korrigiert + gespeichert) → sofort neu verbinden.
+        this._onConfigChange = ({ changed }) => {
+            if (changed.includes('qdrant')) {
+                this.logger.log(this.label, 'Qdrant-Config geändert → neuer Verbindungsversuch');
+                this.qdrant.updateConfig(this.config.qdrant);
+            }
+        };
+        this.config.on('change', this._onConfigChange);
 
         this.llm = new Llm({
             embeddingsApi: config.embeddings.api,

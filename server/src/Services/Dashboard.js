@@ -32,15 +32,25 @@ class DashboardService {
         this.listeners = new Set(); // (payload: string) => void
         this.timer = null;
         this._unsubMcp = null;
+        this._onQdrantStatus = null;
         this.qdrantStatus = { reachable: false, version: null, points: null, checkedAt: null };
         this.lastSnapshot = null;
     }
 
-    /** Startet: MCP-Changes abonnieren, Qdrant prüfen, Perioden-Refresh. */
+    /** Startet: MCP-Changes abonnieren, Qdrant-Status abonnieren, Perioden-Refresh. */
     start() {
         this._unsubMcp = this.mcpSessions.addListener(() => {
             this.refresh().catch((err) => this.logger.error(this.label, `refresh failed: ${err.message}`));
         });
+
+        // Qdrant-Reconnect: bei jedem Verbindungsversuch sofort aktualisieren.
+        if (this.qdrant && typeof this.qdrant.on === 'function') {
+            this._onQdrantStatus = () => {
+                this.refresh({ checkQdrant: true }).catch((err) => this.logger.error(this.label, `refresh failed: ${err.message}`));
+            };
+            this.qdrant.on('status', this._onQdrantStatus);
+        }
+
         this.refresh({ checkQdrant: true }).catch((err) => this.logger.error(this.label, `initial refresh failed: ${err.message}`));
         this.timer = setInterval(() => {
             this.refresh({ checkQdrant: true }).catch((err) => this.logger.error(this.label, `refresh failed: ${err.message}`));
@@ -52,6 +62,10 @@ class DashboardService {
     stop() {
         this._unsubMcp?.();
         this._unsubMcp = null;
+        if (this.qdrant && this._onQdrantStatus && typeof this.qdrant.off === 'function') {
+            this.qdrant.off('status', this._onQdrantStatus);
+        }
+        this._onQdrantStatus = null;
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
@@ -59,32 +73,37 @@ class DashboardService {
         this.listeners.clear();
     }
 
-    /** Prüft Qdrant (Erreichbarkeit, Version, Punktanzahl). */
+    /**
+     * Liest den Qdrant-Status aus dem Qdrant-Service (Reconnect-Loop) und
+     * zählt die Punkte, wenn verbunden.
+     */
     async checkQdrant() {
-        const base = { checkedAt: new Date().toISOString() };
         if (!this.qdrant) {
-            this.qdrantStatus = { ...base, reachable: false, version: null, points: null };
+            this.qdrantStatus = { reachable: false, version: null, points: null, checkedAt: null };
             return;
         }
-        try {
-            const info = await this.qdrant.client.versionInfo();
-            let points = null;
+        const st = this.qdrant.getStatus();
+        let points = null;
+        if (st.connected) {
             try {
                 const c = await this.qdrant.client.count(this.qdrant.collection, { exact: true });
                 points = c?.count ?? null;
             } catch {
                 // Collection existiert ggf. noch nicht → Punkte unbekannt
             }
-            this.qdrantStatus = { ...base, reachable: true, version: info?.version || null, points };
-        } catch (err) {
-            this.qdrantStatus = {
-                ...base,
-                reachable: false,
-                version: null,
-                points: null,
-                error: err?.cause?.message || err?.message || 'unreachable'
-            };
         }
+        this.qdrantStatus = {
+            reachable: st.connected,
+            version: st.version,
+            points,
+            checkedAt: st.lastAttemptAt,
+            attempts: st.attempts,
+            nextAttemptAt: st.nextAttemptAt,
+            retryDelaySec: st.retryDelaySec,
+            maxRetries: st.maxRetries,
+            gaveUp: st.gaveUp,
+            error: st.error
+        };
     }
 
     /** Baut den vollständigen Status-Snapshot. */

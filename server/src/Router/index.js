@@ -4,9 +4,12 @@ import { McpRouter } from './McpRouter.js';
 import { SearchRouter } from './SearchRouter.js';
 import { HealthRouter } from './HealthRouter.js';
 import { SettingsRouter } from './SettingsRouter.js';
+import { FilesRouter } from './FilesRouter.js';
 import { LogsWebSocket } from '../LogsWebSocket.js';
 import { DashboardWebSocket } from '../DashboardWebSocket.js';
+import { FilesWebSocket } from '../FilesWebSocket.js';
 import { DashboardService } from '../Services/Dashboard.js';
+import { FileService } from '../Services/FileService.js';
 import { McpSessionTracker } from '../Services/McpSessions.js';
 
 /**
@@ -38,6 +41,8 @@ class Router {
         this.mcpSessions = null;
         this.dashboardService = null;
         this.dashboardWs = null;
+        this.fileService = null;
+        this.filesWs = null;
     }
 
     /**
@@ -81,7 +86,15 @@ class Router {
         });
         this.dashboardWs = new DashboardWebSocket(this.dashboardService, this.logger);
 
-        // Zentrales Upgrade-Routing (/logs + /dashboard).
+        //
+        // Files: Datei-Verwaltung (Watcher + Queue) + WebSocket (/files).
+        this.fileService = new FileService({ config: this.config, logger: this.logger });
+        this.filesWs = new FilesWebSocket(this.fileService, this.logger);
+
+        const filesRouter = new FilesRouter(this.fileService, this.logger);
+        this.router.use('/', filesRouter.router);
+
+        // Zentrales Upgrade-Routing (/logs + /dashboard + /files).
         this.setupUpgradeRouting();
 
         //
@@ -89,9 +102,10 @@ class Router {
         await frontendRouter.init();
         this.router.use('/', frontendRouter.router);
 
-        // Start: Session-Sweep + Dashboard-Refresh.
+        // Start: Session-Sweep + Dashboard-Refresh + Files (Watcher + Initial-Scan).
         this.mcpSessions.start();
         this.dashboardService.start();
+        this.fileService.start();
     }
 
     /**
@@ -131,6 +145,10 @@ class Router {
             } else if (pathname === '/dashboard') {
                 this.dashboardWs.wss.handleUpgrade(request, socket, head, (ws) => {
                     this.dashboardWs.wss.emit('connection', ws, request);
+                });
+            } else if (pathname === '/files') {
+                this.filesWs.wss.handleUpgrade(request, socket, head, (ws) => {
+                    this.filesWs.wss.emit('connection', ws, request);
                 });
             }
             // Alle anderen Upgrades (Vite HMR mit ?token=…) übernimmt Vites

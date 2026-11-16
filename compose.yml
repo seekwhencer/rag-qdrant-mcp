@@ -24,5 +24,13 @@ services:
       - MCP_ENABLED=${MCP_ENABLED}
       - MCP_PATH=${MCP_PATH}
       - MCP_ALLOWED_HOSTS=${MCP_ALLOWED_HOSTS}
+      - STORAGE_ROOT=/storage
+      - STORAGE_CONCURRENCY=${STORAGE_CONCURRENCY:-1}
+      - STORAGE_DUMMY_DELAY_SEC=${STORAGE_DUMMY_DELAY_SEC:-2}
+      - STORAGE_RETRY_DELAY_SEC=${STORAGE_RETRY_DELAY_SEC:-5}
+      - STORAGE_MAX_RETRIES=${STORAGE_MAX_RETRIES:-3}
     ports:
       - "${SERVER_PORT}:${SERVER_PORT}"
+    volumes:
+      - ./storage:/storage
+      - ./data:/app/data
