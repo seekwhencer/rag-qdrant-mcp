@@ -94,31 +94,47 @@ class McpRouter {
     /**
      * Trackt verbundene MCP-Clients für das Dashboard.
      * Das SDK läuft stateless (keine Session-IDs), daher wird die Identität
-     * (IP + User-Agent) verwendet. Beim `initialize` wird zusätzlich die
-     * Client-Info (Name + Version) erfasst.
+     * (IP + User-Agent) verwendet. Zusätzlich wird die Client-Info (Name +
+     * Version) erfasst — modern (2026-07-28+) aus dem `_meta`-Envelope,
+     * legacy aus `params.clientInfo` im `initialize`-Request.
      */
     trackClient(req) {
         if (!this.mcpSessions) return;
         const ip = req.socket?.remoteAddress || '';
         const host = req.headers['host'] || '';
         const userAgent = req.headers['user-agent'] || '';
-        const clientInfo = this.isInitializeRequest(req.body) ? this.extractClientInfo(req.body) : null;
+        const clientInfo = this.extractClientInfo(req.body);
         this.mcpSessions.touch({ ip, host, userAgent, clientInfo });
     }
 
-    /** True, wenn der Body ein (oder mehrere) `initialize`-Request(s) enthält. */
-    isInitializeRequest(body) {
-        if (!body) return false;
-        const msgs = Array.isArray(body) ? body : [body];
-        return msgs.some((m) => m && m.method === 'initialize');
-    }
-
-    /** clientInfo aus dem initialize-Request extrahieren ({ name, version }). */
+    /**
+     * clientInfo ({ name, version }) aus dem Request-Body extrahieren.
+     *
+     * Modern (2026-07-28+): `params._meta["io.modelcontextprotocol/clientInfo"]`
+     *   — Clients senden es auf JEDEM Request im `_meta`-Envelope.
+     * Legacy: `params.clientInfo` — nur im `initialize`-Request.
+     *
+     * Modern wird bevorzugt; legacy dient als Fallback. Batch-Bodies (Array)
+     * werden durchsucht.
+     */
     extractClientInfo(body) {
         if (!body) return null;
         const msgs = Array.isArray(body) ? body : [body];
-        const init = msgs.find((m) => m && m.method === 'initialize');
-        return init?.params?.clientInfo || null;
+        let legacy = null;
+        for (const m of msgs) {
+            if (!m || typeof m !== 'object') continue;
+            const params = m.params || {};
+            // Modern: _meta-Envelope (jeder Request)
+            const modern = params._meta?.['io.modelcontextprotocol/clientInfo'];
+            if (modern && typeof modern === 'object' && (modern.name || modern.version)) {
+                return modern;
+            }
+            // Legacy: params.clientInfo (initialize) — merken als Fallback
+            if (m.method === 'initialize' && !legacy && params.clientInfo && typeof params.clientInfo === 'object') {
+                legacy = params.clientInfo;
+            }
+        }
+        return legacy;
     }
 }
 
