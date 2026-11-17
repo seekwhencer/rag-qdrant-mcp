@@ -12,6 +12,7 @@ const FIELDS = [
   { key: 'maxRetries', type: 'number', label: 'settings.storage.maxRetries', hint: 'settings.storage.maxRetriesHint', min: 0, max: 10, step: 1 },
   { key: 'maxFileSizeMb', type: 'number', label: 'settings.storage.maxFileSizeMb', hint: 'settings.storage.maxFileSizeMbHint', min: 1, step: 1 },
   { key: 'ignore', type: 'list', label: 'settings.storage.ignore', hint: 'settings.storage.ignoreHint', placeholder: 'settings.storage.ignorePlaceholder' },
+  { key: 'whitelist', type: 'list', label: 'settings.storage.whitelist', hint: 'settings.storage.whitelistHint', placeholder: 'settings.storage.whitelistPlaceholder' },
 ];
 const FIELD_KEYS = FIELDS.map((f) => f.key);
 

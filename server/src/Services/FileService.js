@@ -4,6 +4,7 @@ import { DummyProcessor } from './File/FileProcessor.js';
 import { FileQueue } from './File/FileQueue.js';
 import { FileWatcher } from './File/FileWatcher.js';
 import { broadcastToListeners } from '../Utils/listeners.js';
+import { matchesAny } from '../Utils/glob.js';
 import { noopLogger } from '../Utils/logger.js';
 
 /**
@@ -225,7 +226,11 @@ class FileService {
         const stats = this.queue.stats();
         let files = [];
         try {
-            files = await this.store.list();
+            const all = await this.store.list();
+            // Whitelist-Filter: nur Files, die min. ein Pattern erfüllen, werden
+            // angezeigt (leere Whitelist = kein Filter). Wirkt auch auf bereits
+            // verarbeitete Files (z. B. nach Whitelist-Änderung in den Settings).
+            files = all.filter((f) => matchesAny(f?.path, st.whitelist));
         } catch (err) {
             // DB down → Snapshot trotzdem verfügbar (`store.connected = false`).
             this.logger.error(this.label, `list failed: ${err.message}`);

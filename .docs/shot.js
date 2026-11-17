@@ -61,7 +61,7 @@ async function shot(page, file) {
   log(file);
 }
 
-const CATEGORIES = ['server', 'storage', 'qdrant', 'embeddings', 'chat', 'mcp', 'ui'];
+const CATEGORIES = ['server', 'storage', 'database', 'qdrant', 'docling', 'embeddings', 'chat', 'vision', 'mcp', 'ui'];
 
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });

@@ -1,9 +1,12 @@
+import { DocklingService } from './src/Services/DocklingService.js';
 import { Config } from './src/Config.js';
 import { Logger } from './src/Logger.js';
 import { Server } from './src/Server.js';
 import { SearchService } from './src/Services/SearchService.js';
 import { QdrantService } from './src/Services/QdrantService.js';
-import { LlmService } from './src/Services/LlmService.js';
+import { EmbeddingsService } from './src/Services/EmbeddingsService.js';
+import { ChatService } from './src/Services/ChatService.js';
+import { VisionService } from './src/Services/VisionService.js';
 import { Database } from './src/Database.js';
 
 class App {
@@ -24,35 +27,53 @@ class App {
             logger: this.logger
         });
 
-        // Qdrant-Config geändert (z. B. URL korrigiert + gespeichert) → sofort neu verbinden.
+        this.vision = new VisionService({
+            api: config.vision.api,
+            url: config.vision.url,
+            model: config.vision.model,
+            logger: this.logger
+        });
+
+        // Qdrant-/Vision-Config geändert (z. B. URL korrigiert + gespeichert) → sofort anwenden.
         this._onConfigChange = ({ changed }) => {
             if (changed.includes('qdrant')) {
                 this.logger.log(this.label, 'Qdrant-Config geändert → neuer Verbindungsversuch');
                 this.qdrant.updateConfig(this.config.qdrant);
             }
+            if (changed.includes('vision')) {
+                this.logger.log(this.label, 'Vision-Config geändert → Service aktualisiert');
+                this.vision.updateConfig(this.config.vision);
+            }
         };
         this.config.on('change', this._onConfigChange);
 
-        this.llm = new LlmService({
-            embeddingsApi: config.embeddings.api,
-            embeddingsUrl: config.embeddings.url,
-            embeddingsModel: config.embeddings.model,
-            embeddingsHost: config.embeddings.host,
-            chatApi: config.chat.api,
-            chatUrl: config.chat.url,
-            chatModel: config.chat.model,
+        this.embeddings = new EmbeddingsService({
+            api: config.embeddings.api,
+            url: config.embeddings.url,
+            model: config.embeddings.model,
+            host: config.embeddings.host,
+            logger: this.logger
+        });
+
+        this.chat = new ChatService({
+            api: config.chat.api,
+            url: config.chat.url,
+            model: config.chat.model,
             logger: this.logger
         });
 
         this.search = new SearchService({
             qdrant: this.qdrant,
-            llm: this.llm,
+            embeddings: this.embeddings,
+            chat: this.chat,
             systemPrompt: config.chat.systemPrompt,
             topK: config.searchTopK,
             logger: this.logger
         });
 
-        this.server = new Server(this.config, this.search, this.database, this.logger);
+        this.dockling = new DocklingService({ config: this.config, logger: this.logger });
+
+        this.server = new Server(this.config, this.search, this.database, this.logger, this.dockling);
     }
 
     async run() {

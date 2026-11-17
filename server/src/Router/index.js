@@ -24,15 +24,17 @@ class Router {
      * @param {McpService} mcpService - MCP service
      * @param {LogService} logService - Log buffer / broadcast service
      * @param {Database} database - zentrale Database-Instanz (Pool-Eigentümer)
+     * @param {DocklingService} [dockling] - Dockling service (docling-serve Status-Polling)
      * @param {Logger} [logger] - Logger instance
      */
-    constructor(config, search, httpServer, mcpService, logService, database, logger) {
+    constructor(config, search, httpServer, mcpService, logService, database, dockling, logger) {
         this.search = search;
         this.config = config;
         this.mcpService = mcpService;
         this.httpServer = httpServer;
         this.logService = logService;
         this.database = database;
+        this.dockling = dockling;
         this.label = '[Router]';
         this.logger = logger || { log: () => {}, error: () => {} };
 
@@ -78,20 +80,24 @@ class Router {
         this.logsWs = new LogsWebSocket(this.httpServer, this.logService, this.logger);
 
         //
+        // Files: Datei-Verwaltung (Watcher + Queue) + WebSocket (/files).
+        // Vor dem Dashboard erzeugt: das Dashboard aggregiert die File-Statistik.
+        this.fileService = new FileService({ config: this.config, database: this.database, logger: this.logger });
+        this.filesWs = new FilesWebSocket(this.fileService, this.logger);
+
+        //
         // Dashboard: Status-Aggregation + WebSocket (/dashboard).
         this.dashboardService = new DashboardService({
             config: this.config,
             qdrant: this.search?.qdrant,
             mcpSessions: this.mcpSessions,
+            dockling: this.dockling,
             logService: this.logService,
+            database: this.database,
+            fileService: this.fileService,
             logger: this.logger
         });
         this.dashboardWs = new DashboardWebSocket(this.dashboardService, this.logger);
-
-        //
-        // Files: Datei-Verwaltung (Watcher + Queue) + WebSocket (/files).
-        this.fileService = new FileService({ config: this.config, database: this.database, logger: this.logger });
-        this.filesWs = new FilesWebSocket(this.fileService, this.logger);
 
         const filesRouter = new FilesRouter(this.fileService, this.logger);
         this.router.use('/', filesRouter.router);
@@ -104,8 +110,9 @@ class Router {
         await frontendRouter.init();
         this.router.use('/', frontendRouter.router);
 
-        // Start: Session-Sweep + Dashboard-Refresh + Files (Watcher + Initial-Scan).
+        // Start: Session-Sweep + Docling-Poll + Dashboard-Refresh + Files (Watcher + Initial-Scan).
         this.mcpSessions.start();
+        this.dockling?.start();
         this.dashboardService.start();
         this.fileService.start();
     }

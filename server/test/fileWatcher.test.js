@@ -154,4 +154,60 @@ describe('FileWatcher', () => {
         const root = makeRoot();
         expect(() => new FileWatcher({ config: makeConfig(root) })).toThrow(/handler/);
     });
+
+    it('whitelist: only matching files are forwarded (others dropped)', async () => {
+        const root = makeRoot();
+        const config = makeConfig(root);
+        config.storage.whitelist = ['**/*.md'];
+        const { events, handler } = track();
+        const w = new FileWatcher({ config, handler });
+        w.start();
+        await w.whenReady();
+
+        // .md → forwarded, .txt → dropped by whitelist.
+        writeFileSync(join(root, 'keep.md'), 'hello');
+        writeFileSync(join(root, 'drop.txt'), 'world');
+        await waitFor(() => events.some((e) => e.relPath === 'keep.md'));
+        // Kurze Wartezeit, um sicherzustellen, dass drop.txt NICHT kommt.
+        await new Promise((r) => setTimeout(r, 400));
+
+        await w.stop();
+        expect(events).toEqual(expect.arrayContaining([{ relPath: 'keep.md', event: 'create' }]));
+        expect(events.some((e) => e.relPath === 'drop.txt')).toBe(false);
+    });
+
+    it('whitelist: nested .md matches **/*.md, nested .txt does not', async () => {
+        const root = makeRoot();
+        mkdirSync(join(root, 'docs'), { recursive: true });
+        const config = makeConfig(root);
+        config.storage.whitelist = ['**/*.md'];
+        const { events, handler } = track();
+        const w = new FileWatcher({ config, handler });
+        w.start();
+        await w.whenReady();
+
+        writeFileSync(join(root, 'docs', 'keep.md'), 'x');
+        writeFileSync(join(root, 'docs', 'drop.txt'), 'y');
+        await waitFor(() => events.some((e) => e.relPath === 'docs/keep.md'));
+        await new Promise((r) => setTimeout(r, 400));
+
+        await w.stop();
+        expect(events).toEqual(expect.arrayContaining([{ relPath: 'docs/keep.md', event: 'create' }]));
+        expect(events.some((e) => e.relPath === 'docs/drop.txt')).toBe(false);
+    });
+
+    it('whitelist: empty whitelist forwards everything (no filter)', async () => {
+        const root = makeRoot();
+        const config = makeConfig(root);
+        config.storage.whitelist = [];
+        const { events, handler } = track();
+        const w = new FileWatcher({ config, handler });
+        w.start();
+        await w.whenReady();
+
+        writeFileSync(join(root, 'a.txt'), 'hello');
+        await waitFor(() => events.some((e) => e.relPath === 'a.txt'));
+        await w.stop();
+        expect(events).toEqual(expect.arrayContaining([{ relPath: 'a.txt', event: 'create' }]));
+    });
 });

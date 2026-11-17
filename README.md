@@ -88,6 +88,9 @@ passed via `compose.yml` using a `.env` file:
 | `QDRANT_URL`       | Base URL of the Qdrant instance                                                                                       |
 | `QDRANT_PORT`      | Port of the Qdrant instance (default: `80`)                                                                           |
 | `QDRANT_COLLECTION`| Name of the Qdrant collection (default: `research`)                                                                   |
+| `DOCLING_URL`      | Base URL of the docling-serve instance (e.g. `http://localhost:5001`)                                                 |
+| `DOCLING_API_KEY`  | API key for the docling-serve instance (never persisted to `config.json`)                                             |
+| `DOCLING_STATUS_POLL_INTERVAL_SEC` | How often the docling-serve instance status is polled, in seconds (default: `30`)                          |
 | `EMBEDDINGS_API`   | Embedding backend: `ollama` (default) posts to `{URL}/api/embed`, `openai` posts to `{URL}/embeddings`               |
 | `EMBEDDINGS_URL`   | Base URL of the embedding LLM host (e.g. `http://localhost:11434` for Ollama or `http://localhost:8080/v1` for llama.cpp) |
 | `EMBEDDINGS_HOST`  | Optional `Host` header sent with embedding requests (useful behind a reverse proxy)                                   |
@@ -96,6 +99,9 @@ passed via `compose.yml` using a `.env` file:
 | `CHAT_URL`         | Base URL of the chat LLM host                                                                                         |
 | `CHAT_MODEL`       | Chat model name                                                                                                       |
 | `LLM_SYSTEM_PROMPT`| System prompt used by the chat LLM when generating RAG answers                                                        |
+| `VISION_API`       | Vision backend: `ollama` (default) posts to `{URL}/api/chat`, `openai` posts to `{URL}/chat/completions`             |
+| `VISION_URL`       | Base URL of the vision LLM host (same endpoint as chat)                                                               |
+| `VISION_MODEL`     | Vision model name                                                                                                     |
 | `MCP_ENABLED`      | Enable the MCP server (`true` by default)                                                                             |
 | `MCP_PATH`         | MCP endpoint path (default: `/mcp`)                                                                                   |
 | `MCP_ALLOWED_HOSTS`| Comma-separated list of allowed hostnames for DNS rebinding protection (e.g. `localhost,127.0.0.1,[::1]`)             |
@@ -284,15 +290,18 @@ node index.js
 | Page               | Light                                                                                     | Dark                                                                                     |
 | ------------------ | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | Dashboard          | ![Dashboard (light)](.docs/screenshots/dashboard-light.png)                              | ![Dashboard (dark)](.docs/screenshots/dashboard-dark.png)                               |
+| Files              | ![Files (light)](.docs/screenshots/files-light.png)                                      | ![Files (dark)](.docs/screenshots/files-dark.png)                                       |
 | Logs               | ![Logs (light)](.docs/screenshots/logs-light.png)                                        | ![Logs (dark)](.docs/screenshots/logs-dark.png)                                         |
 | Settings — Server  | ![Settings Server (light)](.docs/screenshots/settings-server-light.png)                  | ![Settings Server (dark)](.docs/screenshots/settings-server-dark.png)                   |
 | Settings — Files   | ![Settings Files (light)](.docs/screenshots/settings-storage-light.png)                  | ![Settings Files (dark)](.docs/screenshots/settings-storage-dark.png)                   |
+| Settings — Database| ![Settings Database (light)](.docs/screenshots/settings-database-light.png)               | ![Settings Database (dark)](.docs/screenshots/settings-database-dark.png)                   |
 | Settings — Qdrant  | ![Settings Qdrant (light)](.docs/screenshots/settings-qdrant-light.png)                  | ![Settings Qdrant (dark)](.docs/screenshots/settings-qdrant-dark.png)                   |
-| Settings — Embeddings | ![Settings Embeddings (light)](.docs/screenshots/settings-embeddings-light.png)        | ![Settings Embeddings (dark)](.docs/screenshots/settings-embeddings-dark.png)           |
+| Settings — Docling | ![Settings Docling (light)](.docs/screenshots/settings-docling-light.png)                  | ![Settings Docling (dark)](.docs/screenshots/settings-docling-dark.png)                   |
+| Settings — Embeddings | ![Settings Embeddings (light)](.docs/screenshots/settings-embeddings-light.png)       | ![Settings Embeddings (dark)](.docs/screenshots/settings-embeddings-dark.png)           |
 | Settings — Chat    | ![Settings Chat (light)](.docs/screenshots/settings-chat-light.png)                      | ![Settings Chat (dark)](.docs/screenshots/settings-chat-dark.png)                       |
+| Settings — Vision  | ![Settings Chat (light)](.docs/screenshots/settings-vision-light.png)                    | ![Settings Vision (dark)](.docs/screenshots/settings-vision-dark.png)                       |
 | Settings — MCP     | ![Settings MCP (light)](.docs/screenshots/settings-mcp-light.png)                        | ![Settings MCP (dark)](.docs/screenshots/settings-mcp-dark.png)                         |
 | Settings — UI      | ![Settings UI (light)](.docs/screenshots/settings-ui-light.png)                          | ![Settings UI (dark)](.docs/screenshots/settings-ui-dark.png)                           |
-| Files              | ![Files (light)](.docs/screenshots/files-light.png)                                      | ![Files (dark)](.docs/screenshots/files-dark.png)                                       |
 | About              | ![About (light)](.docs/screenshots/about-light.png)                                      | ![About (dark)](.docs/screenshots/about-dark.png)                                       |
 
 #### Develop

@@ -14,11 +14,13 @@ export class Server {
      * @param {SearchService} search - Search service
      * @param {Database} database - zentrale Database-Instanz (Pool-Eigentümer)
      * @param {Logger} [logger] - Logger instance
+     * @param {DocklingService} [dockling] - Dockling service
      */
-    constructor(config, search, database, logger) {
+    constructor(config, search, database, logger, dockling) {
         this.config = config;
         this.search = search;
         this.database = database;
+        this.dockling = dockling;
         this.label = '[Server]';
         this.logger = logger || { log: () => {}, error: () => {} };
 
@@ -59,7 +61,7 @@ export class Server {
         }
 
         // append the routes
-        this.router = new Router(this.config, this.search, this.httpServer, this.mcpService, this.logService, this.database, this.logger);
+        this.router = new Router(this.config, this.search, this.httpServer, this.mcpService, this.logService, this.database, this.dockling, this.logger);
         await this.router.define();
         this.app.use(this.router.router);
 
@@ -88,6 +90,7 @@ export class Server {
             this.router?.logsWs?.close(); // WS-Clients terminate (sonst hängt httpServer.close())
             this.router?.dashboardWs?.close();
             this.router?.dashboardService?.stop();
+            this.dockling?.stop(); // Poll-Timer stoppen
             this.search?.qdrant?.stop(); // Reconnect-Loop stoppen
             this.router?.filesWs?.close();
             await this.router?.fileService?.stop();

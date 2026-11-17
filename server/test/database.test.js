@@ -96,4 +96,43 @@ describe('Database', () => {
         await expect(database.close()).rejects.toThrow('pool error');
         expect(silentLogger.error).toHaveBeenCalled();
     });
+
+    it('getStatus() meldet initial nicht erreichbar', () => {
+        const database = new Database({ db, logger: silentLogger });
+        expect(database.getStatus()).toEqual({
+            reachable: false,
+            error: null,
+            lastAttemptAt: null
+        });
+    });
+
+    it('getStatus() meldet nach connect() erreichbar + Zeitstempel', async () => {
+        fakePool.query.mockResolvedValueOnce([[1]]);
+        migrateMock.mockResolvedValueOnce(undefined);
+        const database = new Database({ db, logger: silentLogger });
+        await database.connect();
+        const st = database.getStatus();
+        expect(st.reachable).toBe(true);
+        expect(st.error).toBeNull();
+        expect(st.lastAttemptAt).toBeTruthy();
+    });
+
+    it('getStatus() meldet nach fehlgeschlagenem connect() nicht erreichbar + Fehler', async () => {
+        fakePool.query.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+        const database = new Database({ db, logger: silentLogger });
+        await database.connect().catch(() => {});
+        const st = database.getStatus();
+        expect(st.reachable).toBe(false);
+        expect(st.error).toBe('ECONNREFUSED');
+    });
+
+    it('getStatus() meldet nach close() nicht erreichbar', async () => {
+        fakePool.query.mockResolvedValueOnce([[1]]);
+        migrateMock.mockResolvedValueOnce(undefined);
+        fakePool.end.mockResolvedValueOnce(undefined);
+        const database = new Database({ db, logger: silentLogger });
+        await database.connect();
+        await database.close();
+        expect(database.getStatus().reachable).toBe(false);
+    });
 });

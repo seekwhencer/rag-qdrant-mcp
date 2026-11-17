@@ -40,6 +40,35 @@
       "maxRetries": "Max retries",
       "unlimited": "unlimited"
     },
+    "database": {
+      "title": "Database",
+      "status": "Status",
+      "reachable": "Reachable",
+      "unreachable": "Unreachable",
+      "endpoint": "Endpoint"
+    },
+    "docling": {
+      "title": "Docling",
+      "status": "Status",
+      "reachable": "Reachable",
+      "unreachable": "Unreachable",
+      "notConfigured": "Not configured",
+      "endpoint": "Endpoint",
+      "health": "Health",
+      "ready": "Ready",
+      "version": "Version",
+      "sources": "Sources",
+      "targets": "Targets",
+      "outputFormats": "Output formats",
+      "memoryRss": "Memory (RSS)",
+      "memoryCgroup": "Memory (cgroup)",
+      "objects": "GC objects",
+      "tasks": "Async tasks",
+      "pollInterval": "Poll interval",
+      "checked": "Checked",
+      "more": "more",
+      "detailsTitle": "Docling – Details"
+    },
     "server": {
       "title": "Server",
       "uptime": "Uptime",
@@ -52,7 +81,20 @@
     "models": {
       "title": "Models",
       "embeddings": "Embeddings",
-      "chat": "Chat"
+      "chat": "Chat",
+      "vision": "Vision",
+      "status": "Status",
+      "endpoint": "Endpoint",
+      "model": "Model"
+    },
+    "files": {
+      "title": "Files",
+      "folder": "Folder",
+      "pending": "Pending",
+      "processing": "Processing",
+      "done": "Done",
+      "errors": "Errors",
+      "cancelled": "Cancelled"
     }
   },
   "files": {
@@ -144,8 +186,10 @@
     "categories": {
       "server": "Server",
       "qdrant": "Qdrant",
+      "docling": "Docling",
       "embeddings": "Embeddings",
       "chat": "Chat",
+      "vision": "Vision",
       "mcp": "MCP",
       "storage": "Files",
       "database": "Database",
@@ -177,6 +221,16 @@
       "maxRetries": "Max retries",
       "maxRetriesHint": "Max consecutive failed attempts before giving up. 0 = unlimited."
     },
+    "docling": {
+      "title": "Docling",
+      "url": "Docling URL",
+      "urlHint": "Base URL of the docling-serve instance (e.g. http://localhost:5001).",
+      "urlPlaceholder": "e.g. http://localhost:5001",
+      "apiKey": "API Key",
+      "apiKeyHint": "Leave empty = unchanged. Env `DOCLING_API_KEY` takes precedence.",
+      "statusPollIntervalSec": "Status poll interval (seconds)",
+      "statusPollIntervalSecHint": "How often the docling-serve instance status is polled."
+    },
     "embeddings": {
       "title": "Embeddings",
       "api": "API (openai/ollama)",
@@ -194,6 +248,13 @@
       "model": "Model",
       "systemPrompt": "System prompt",
       "systemPromptHint": "The system prompt prepended to every chat request."
+    },
+    "vision": {
+      "title": "Vision",
+      "api": "API (openai/ollama)",
+      "url": "URL",
+      "urlHint": "OpenAI-compatible API URL (for openai). Same endpoint as Chat.",
+      "model": "Model"
     },
     "mcp": {
       "title": "MCP",
@@ -223,7 +284,10 @@
       "maxFileSizeMbHint": "Larger files are skipped.",
       "ignore": "Ignore",
       "ignoreHint": "Comma-separated glob patterns.",
-      "ignorePlaceholder": "e.g. **/.git/**, **/node_modules/**"
+      "ignorePlaceholder": "e.g. **/.git/**, **/node_modules/**",
+      "whitelist": "Whitelist",
+      "whitelistHint": "Comma-separated glob patterns. Only matching files are considered. Empty = all files.",
+      "whitelistPlaceholder": "e.g. **/*.md, **/*.txt"
     },
     "db": {
       "title": "Database connection",

@@ -8,11 +8,14 @@ import { noopLogger } from '../Utils/logger.js';
  *   - Server (Port, Uptime, Memory, Log-Statistik)
  *   - MCP (Konfiguration + verbundene Sessions via McpSessionsService)
  *   - Qdrant (Erreichbarkeit, Version, Punktanzahl) — serverseitig geprüft
+ *   - Docling (Health, Readiness, Capabilities, Version, Memory) — serverseitig gepollt
+ *   - Files (Root, Queue-Statistik) — via FileService (Push bei jedem Change)
  *   - Embeddings / Chat (Konfiguration)
  *
  * Das Dashboard (Client) pollt NICHT: es erhält per WebSocket einen
  * Snapshot auf Connect und danach Updates, wenn sich etwas ändert.
- * Der Qdrant-Check läuft serverseitig im Intervall (kein Client-Polling).
+ * Der Qdrant-Check und der Docling-Poll laufen serverseitig im Intervall
+ * (kein Client-Polling).
  */
 class DashboardService {
     /**
@@ -20,22 +23,30 @@ class DashboardService {
      * @param {Config} params.config
      * @param {Qdrant} [params.qdrant]
      * @param {McpSessionsService} params.mcpSessions
+     * @param {DocklingService} [params.dockling]
      * @param {LogService} [params.logService]
+     * @param {Database} [params.database] - zentrale Database-Instanz (Status für das Dashboard)
+     * @param {FileService} [params.fileService] - File-Service (Root + Queue-Statistik, Push bei Changes)
      * @param {Logger} [params.logger]
      * @param {number} [params.refreshIntervalMs] - Serverseitiges Qdrant-Refresh-Intervall
      */
-    constructor({ config, qdrant, mcpSessions, logService, logger, refreshIntervalMs = 30 * 1000 } = {}) {
+    constructor({ config, qdrant, mcpSessions, dockling, logService, database, fileService, logger, refreshIntervalMs = 30 * 1000 } = {}) {
         this.label = '[Dashboard]';
         this.logger = logger || noopLogger();
         this.config = config;
         this.qdrant = qdrant;
         this.mcpSessions = mcpSessions;
+        this.dockling = dockling;
         this.logService = logService;
+        this.database = database;
+        this.fileService = fileService;
         this.refreshIntervalMs = refreshIntervalMs;
         this.listeners = new Set(); // (payload: string) => void
         this.timer = null;
         this._unsubMcp = null;
         this._onQdrantStatus = null;
+        this._onDocklingStatus = null;
+        this._unsubFiles = null;
         this.qdrantStatus = { reachable: false, version: null, points: null, checkedAt: null };
         this.lastSnapshot = null;
     }
@@ -54,6 +65,22 @@ class DashboardService {
             this.qdrant.on('status', this._onQdrantStatus);
         }
 
+        // Docling-Poll: bei jedem Status-Update sofort aktualisieren.
+        if (this.dockling && typeof this.dockling.on === 'function') {
+            this._onDocklingStatus = () => {
+                this.refresh().catch((err) => this.logger.error(this.label, `refresh failed: ${err.message}`));
+            };
+            this.dockling.on('status', this._onDocklingStatus);
+        }
+
+        // Files: bei jedem File-Change (Queue/Store/Config) sofort aktualisieren.
+        // FileService broadcastet debounced (~100 ms) → hier nur reagieren.
+        if (this.fileService && typeof this.fileService.addListener === 'function') {
+            this._unsubFiles = this.fileService.addListener(() => {
+                this.refresh().catch((err) => this.logger.error(this.label, `refresh failed: ${err.message}`));
+            });
+        }
+
         this.refresh({ checkQdrant: true }).catch((err) => this.logger.error(this.label, `initial refresh failed: ${err.message}`));
         this.timer = setInterval(() => {
             this.refresh({ checkQdrant: true }).catch((err) => this.logger.error(this.label, `refresh failed: ${err.message}`));
@@ -69,6 +96,12 @@ class DashboardService {
             this.qdrant.off('status', this._onQdrantStatus);
         }
         this._onQdrantStatus = null;
+        if (this.dockling && this._onDocklingStatus && typeof this.dockling.off === 'function') {
+            this.dockling.off('status', this._onDocklingStatus);
+        }
+        this._onDocklingStatus = null;
+        this._unsubFiles?.();
+        this._unsubFiles = null;
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
@@ -140,6 +173,32 @@ class DashboardService {
                 collection: this.config.qdrant?.collection || '',
                 ...this.qdrantStatus
             },
+            database: {
+                host: this.config.db?.host || '',
+                port: this.config.db?.port || null,
+                database: this.config.db?.database || '',
+                ...(this.database
+                    ? this.database.getStatus()
+                    : { reachable: false, error: null, lastAttemptAt: null })
+            },
+            files: this.fileService
+                ? {
+                    root: this.fileService.config.storage?.root || '',
+                    enabled: !!this.fileService.config.storage?.enabled,
+                    ...this.fileService.queue.stats()
+                }
+                : null,
+            docling: this.dockling
+                ? this.dockling.getStatus()
+                : {
+                    configured: false,
+                    url: this.config.docling?.url || '',
+                    reachable: false,
+                    ready: false,
+                    checkedAt: null,
+                    pollIntervalSec: this.config.docling?.statusPollIntervalSec || null,
+                    endpoints: {}
+                },
             embeddings: {
                 api: this.config.embeddings?.api || '',
                 model: this.config.embeddings?.model || '',
@@ -147,6 +206,12 @@ class DashboardService {
                 url: this.config.embeddings?.url || ''
             },
             chat: {
+                api: this.config.chat?.api || '',
+                model: this.config.chat?.model || '',
+                url: this.config.chat?.url || ''
+            },
+            // Vision: Werte vorerst aus Chat kopiert (gleicher Endpunkt).
+            vision: {
                 api: this.config.chat?.api || '',
                 model: this.config.chat?.model || '',
                 url: this.config.chat?.url || ''

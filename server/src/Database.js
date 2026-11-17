@@ -24,6 +24,10 @@ class Database {
         }
         this.label = '[Database]';
         this.logger = logger || { log: () => {}, error: () => {} };
+        // Live-Status (für das Dashboard): Erreichbarkeit + letzter Fehler.
+        this._reachable = false;
+        this._error = null;
+        this._lastAttemptAt = null;
         this.pool = mysql.createPool({
             host: db.host,
             port: db.port,
@@ -47,10 +51,15 @@ class Database {
      * @returns {Promise<void>}
      */
     async connect() {
+        this._lastAttemptAt = new Date().toISOString();
         try {
             await this.pool.query('SELECT 1');
             await migrate(this.pool);
+            this._reachable = true;
+            this._error = null;
         } catch (err) {
+            this._reachable = false;
+            this._error = err?.message || 'unreachable';
             this.logger.error(this.label, 'connect failed', { error: err.message });
             throw err;
         }
@@ -61,12 +70,25 @@ class Database {
      * @returns {Promise<void>}
      */
     async close() {
+        this._reachable = false;
         try {
             await this.pool.end();
         } catch (err) {
             this.logger.error(this.label, 'close failed', { error: err.message });
             throw err;
         }
+    }
+
+    /**
+     * Aktueller Verbindungs-Status (für das Dashboard).
+     * @returns {{reachable: boolean, error: string|null, lastAttemptAt: string|null}}
+     */
+    getStatus() {
+        return {
+            reachable: this._reachable,
+            error: this._error,
+            lastAttemptAt: this._lastAttemptAt
+        };
     }
 }
 

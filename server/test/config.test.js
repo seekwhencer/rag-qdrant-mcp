@@ -260,6 +260,7 @@ describe('Config storage group', () => {
         expect(config.storage.maxRetries).toBe(3);
         expect(config.storage.maxFileSizeMb).toBe(1024);
         expect(config.storage.ignore).toEqual(['**/.git/**', '**/node_modules/**']);
+        expect(config.storage.whitelist).toEqual([]);
     });
 
     it('lets env vars override storage values', () => {
@@ -316,7 +317,8 @@ describe('Config storage group', () => {
                 retryDelaySec: 5,
                 maxRetries: 3,
                 maxFileSizeMb: 1024,
-                ignore: ['**/.git/**', '**/node_modules/**']
+                ignore: ['**/.git/**', '**/node_modules/**'],
+                whitelist: []
             });
         } finally {
             rmSync(dir, { recursive: true, force: true });
@@ -383,6 +385,18 @@ describe('Config storage group', () => {
         const base = config.getSettings();
         expect(config.validateSettings({ ...base, storage: { ...base.storage, ignore: ['**/.git/**', 42] } })
             .some((e) => e.includes('storage.ignore'))).toBe(true);
+    });
+
+    it('validateSettings rejects a non-string whitelist entry', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, storage: { ...base.storage, whitelist: ['**/*.md', 42] } })
+            .some((e) => e.includes('storage.whitelist'))).toBe(true);
+    });
+
+    it('parses STORAGE_WHITELIST as a comma-separated array', () => {
+        const config = new Config({ CONFIG_PATH: missingPath(), STORAGE_WHITELIST: '**/*.md, **/*.txt' });
+        expect(config.storage.whitelist).toEqual(['**/*.md', '**/*.txt']);
     });
 
     it('updateSettings applies a valid storage patch and persists it', () => {
@@ -634,6 +648,173 @@ describe('Config db group', () => {
             expect(config.db.password).toBe('s3cret');
             const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
             expect(written.db.password).toBe('');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('Config docling group', () => {
+    it('uses docling defaults when no config.json and no env overrides are present', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        expect(config.docling.url).toBe('');
+        expect(config.docling.apiKey).toBe('');
+        expect(config.docling.statusPollIntervalSec).toBe(30);
+    });
+
+    it('lets env vars override docling values and locks them in the UI', () => {
+        const config = new Config({
+            CONFIG_PATH: missingPath(),
+            DOCLING_URL: 'http://docling:5001',
+            DOCLING_API_KEY: 'dk-123',
+            DOCLING_STATUS_POLL_INTERVAL_SEC: '15'
+        });
+        expect(config.docling.url).toBe('http://docling:5001');
+        expect(config.docling.apiKey).toBe('dk-123');
+        expect(config.docling.statusPollIntervalSec).toBe(15);
+        expect(config.getSettings().envLocked.docling.url).toBe('DOCLING_URL');
+        expect(config.getSettings().envLocked.docling.apiKey).toBe('DOCLING_API_KEY');
+        expect(config.getSettings().envLocked.docling.statusPollIntervalSec).toBe('DOCLING_STATUS_POLL_INTERVAL_SEC');
+    });
+
+    it('reads docling values from a config.json file', () => {
+        const { dir, cfgPath } = withTempConfig({
+            docling: { url: 'http://filehost:5001' }
+        });
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            expect(config.docling.url).toBe('http://filehost:5001');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('saveDefaults writes the docling group with an empty apiKey placeholder', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            config.saveDefaults();
+            const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            expect(written.docling).toEqual({ url: '', apiKey: '', statusPollIntervalSec: 30 });
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('getSettings includes docling and envLocked.docling', () => {
+        const config = new Config({ CONFIG_PATH: missingPath(), DOCLING_URL: 'http://envhost:5001' });
+        const settings = config.getSettings();
+        expect(settings.docling.url).toBe('http://envhost:5001');
+        expect(settings.envLocked.docling.url).toBe('DOCLING_URL');
+    });
+
+    it('getSettings masks docling.apiKey even when set via env', () => {
+        const config = new Config({ CONFIG_PATH: missingPath(), DOCLING_API_KEY: 'dk-123' });
+        // Runtime-State hält den echten Wert (für die spätere API-Aufrufe).
+        expect(config.docling.apiKey).toBe('dk-123');
+        // Die UI sieht nur die Maske, nie den Klartext.
+        expect(config.getSettings().docling.apiKey).toBe('••••••');
+    });
+
+    it('validateSettings rejects a non-string docling.url', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, docling: { url: 42 } })
+            .some((e) => e.includes('docling.url'))).toBe(true);
+    });
+
+    it('validateSettings rejects a non-string docling.apiKey', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, docling: { url: 'http://x', apiKey: 42 } })
+            .some((e) => e.includes('docling.apiKey'))).toBe(true);
+    });
+
+    it('validateSettings rejects an invalid docling.statusPollIntervalSec', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, docling: { url: 'http://x', apiKey: '', statusPollIntervalSec: 0 } })
+            .some((e) => e.includes('docling.statusPollIntervalSec'))).toBe(true);
+        expect(config.validateSettings({ ...base, docling: { url: 'http://x', apiKey: '', statusPollIntervalSec: 2.5 } })
+            .some((e) => e.includes('docling.statusPollIntervalSec'))).toBe(true);
+    });
+
+    it('updateSettings applies a valid docling patch and persists it', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            const result = config.updateSettings({ docling: { url: 'http://newhost:5001' } });
+            expect(result.applied).toContain('docling');
+            expect(config.docling.url).toBe('http://newhost:5001');
+            const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            expect(written.docling.url).toBe('http://newhost:5001');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('updateSettings ignores env-locked docling keys', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath, DOCLING_URL: 'http://envhost:5001' });
+            config.updateSettings({ docling: { url: 'http://patched:5001' } });
+            expect(config.docling.url).toBe('http://envhost:5001');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('keeps the real docling.apiKey in runtime state but never persists it', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath, DOCLING_API_KEY: 'dk-123' });
+            // UI sendet den maskierten Wert zurück (leer gelassen = unverändert).
+            config.updateSettings({ docling: { url: 'http://newhost:5001', apiKey: '••••••' } });
+            // Runtime-State behält den echten Env-Wert.
+            expect(config.docling.apiKey).toBe('dk-123');
+            expect(config.docling.url).toBe('http://newhost:5001');
+            // config.json enthält nie den Klartext, sondern den leeren Platzhalter.
+            const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            expect(written.docling.apiKey).toBe('');
+            expect(written.docling.url).toBe('http://newhost:5001');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('treats an empty docling.apiKey in a patch as unchanged', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath, DOCLING_API_KEY: 'dk-123' });
+            config.updateSettings({ docling: { url: 'http://newhost:5001', apiKey: '' } });
+            expect(config.docling.apiKey).toBe('dk-123');
+            const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            expect(written.docling.apiKey).toBe('');
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('updateSettings applies a valid docling.statusPollIntervalSec patch and persists it', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            const result = config.updateSettings({ docling: { statusPollIntervalSec: 45 } });
+            expect(result.applied).toContain('docling');
+            expect(config.docling.statusPollIntervalSec).toBe(45);
+            const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            expect(written.docling.statusPollIntervalSec).toBe(45);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('updateSettings ignores env-locked docling.statusPollIntervalSec', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath, DOCLING_STATUS_POLL_INTERVAL_SEC: '15' });
+            config.updateSettings({ docling: { statusPollIntervalSec: 99 } });
+            expect(config.docling.statusPollIntervalSec).toBe(15);
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }

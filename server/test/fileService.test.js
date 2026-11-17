@@ -98,6 +98,41 @@ describe('FileService', () => {
         expect(snap.files).toHaveLength(1);
     });
 
+    it('Snapshot filtert Files nach Whitelist (nur passende erscheinen)', async () => {
+        const config = makeConfig({ whitelist: ['**/*.md'] });
+        const store = makeMockStore([
+            { path: 'a.md', status: 'done' },
+            { path: 'docs/b.md', status: 'done' },
+            { path: 'c.txt', status: 'done' },
+            { path: 'docs/d.txt', status: 'done' }
+        ]);
+        const processor = makeMockProcessor();
+        const queue = new FileQueue({ config, processor });
+        const watcher = makeMockWatcher();
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcher });
+
+        const snap = await service.getSnapshot();
+        expect(snap.files).toHaveLength(2);
+        expect(snap.files.map((f) => f.path).sort()).toEqual(['a.md', 'docs/b.md']);
+        expect(snap.stats.files).toBe(2);
+    });
+
+    it('Snapshot: leere Whitelist → alle Files erscheinen (kein Filter)', async () => {
+        const config = makeConfig({ whitelist: [] });
+        const store = makeMockStore([
+            { path: 'a.md', status: 'done' },
+            { path: 'c.txt', status: 'done' }
+        ]);
+        const processor = makeMockProcessor();
+        const queue = new FileQueue({ config, processor });
+        const watcher = makeMockWatcher();
+        const service = new FileService({ config, database: makeMockDatabase(), store, processor, queue, watcher });
+
+        const snap = await service.getSnapshot();
+        expect(snap.files).toHaveLength(2);
+        expect(snap.stats.files).toBe(2);
+    });
+
     it('queue im Snapshot: neueste zuerst, cap 200', async () => {
         const config = makeConfig();
         const processor = makeMockProcessor();

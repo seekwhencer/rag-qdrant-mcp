@@ -50,6 +50,16 @@ const CHAT_PARAMS = {
 };
 
 /**
+ * Vision-Parameter (OpenAI-kompatible API / Ollama).
+ * Vision-Modell wird wie das Chat-Modell konfiguriert (gleicher Endpunkt).
+ */
+const VISION_PARAMS = {
+    api: { env: 'VISION_API', type: 'string', default: 'ollama' },
+    url: { env: 'VISION_URL', type: 'string', default: '' },
+    model: { env: 'VISION_MODEL', type: 'string', default: '' },
+};
+
+/**
  * MCP-Parameter (Model Context Protocol).
  */
 const MCP_PARAMS = {
@@ -70,6 +80,9 @@ const STORAGE_PARAMS = {
     maxRetries: { env: 'STORAGE_MAX_RETRIES', type: 'integer', default: 3 },
     maxFileSizeMb: { env: 'STORAGE_MAX_FILE_SIZE_MB', type: 'number', default: 1024 },
     ignore: { env: 'STORAGE_IGNORE', type: 'array', default: ['**/.git/**', '**/node_modules/**'] },
+    // Whitelist: nur Files, die min. ein Pattern erfüllen, werden berücksichtigt.
+    // Leer = kein Filter (alle Files). Glob-Patterns (z. B. `**/*.md`).
+    whitelist: { env: 'STORAGE_WHITELIST', type: 'array', default: [] },
 };
 
 /**
@@ -93,6 +106,19 @@ const DB_PARAMS = {
 };
 
 /**
+ * Docling-Parameter (Dokumenten-Parsing via docling-serve).
+ *
+ * `apiKey` ist ein Secret: der echte Wert kommt ausschließlich aus der Env
+ * (`DOCLING_API_KEY`) und wird nie in config.json persistiert (siehe Passwort-Hygiene).
+ */
+const DOCLING_PARAMS = {
+    url: { env: 'DOCLING_URL', type: 'string', default: '' },
+    apiKey: { env: 'DOCLING_API_KEY', type: 'string', default: '' },
+    // Status-Polling: Abstand zwischen Status-Abfragen der docling-serve-Instanz (Sekunden).
+    statusPollIntervalSec: { env: 'DOCLING_STATUS_POLL_INTERVAL_SEC', type: 'integer', default: 30 },
+};
+
+/**
  * Loads and manages server configuration from environment variables and a config.json file.
  *
  * Erbt von EventEmitter: `updateSettings()` feuert ein `change`-Event
@@ -109,7 +135,7 @@ class Config extends EventEmitter {
     };
 
     /** Keys, die ohne Neustart wirksam werden. */
-    static runtimeKeys = ['verbose', 'searchTopK', 'dataDir', 'qdrant', 'embeddings', 'chat', 'mcp', 'storage'];
+    static runtimeKeys = ['verbose', 'searchTopK', 'dataDir', 'qdrant', 'embeddings', 'chat', 'vision', 'mcp', 'storage', 'docling'];
 
     /** Keys, die einen Neustart erfordern. */
     static restartKeys = ['serverPort'];
@@ -130,7 +156,7 @@ class Config extends EventEmitter {
 
         // Env-gelockte Felder: key → Name der Umgebungsvariable.
         // Diese Werte sind in der UI nicht änderbar (Env hat immer Vorrang).
-        this.envLocked = { root: {}, qdrant: {}, embeddings: {}, chat: {}, mcp: {}, storage: {}, db: {} };
+        this.envLocked = { root: {}, qdrant: {}, embeddings: {}, chat: {}, vision: {}, mcp: {}, storage: {}, db: {}, docling: {} };
         if (parseInt(env.SERVER_PORT, 10)) this.envLocked.root.serverPort = 'SERVER_PORT';
         if (env.VERBOSE === 'true') this.envLocked.root.verbose = 'VERBOSE';
         if (parseInt(env.SEARCH_TOP_K, 10)) this.envLocked.root.searchTopK = 'SEARCH_TOP_K';
@@ -140,9 +166,11 @@ class Config extends EventEmitter {
         this.qdrant = this.resolveParams(QDRANT_PARAMS, loaded?.qdrant, 'qdrant');
         this.embeddings = this.resolveParams(EMBEDDINGS_PARAMS, loaded?.embeddings, 'embeddings');
         this.chat = this.resolveParams(CHAT_PARAMS, loaded?.chat, 'chat');
+        this.vision = this.resolveParams(VISION_PARAMS, loaded?.vision, 'vision');
         this.mcp = this.resolveParams(MCP_PARAMS, loaded?.mcp, 'mcp');
         this.storage = this.resolveParams(STORAGE_PARAMS, loaded?.storage, 'storage');
         this.db = this.resolveParams(DB_PARAMS, loaded?.db, 'db');
+        this.docling = this.resolveParams(DOCLING_PARAMS, loaded?.docling, 'docling');
     }
 
     /**
@@ -240,10 +268,12 @@ class Config extends EventEmitter {
             qdrant: Object.fromEntries(Object.entries(QDRANT_PARAMS).map(([key, spec]) => [key, spec.default])),
             embeddings: Object.fromEntries(Object.entries(EMBEDDINGS_PARAMS).map(([key, spec]) => [key, spec.default])),
             chat: Object.fromEntries(Object.entries(CHAT_PARAMS).map(([key, spec]) => [key, spec.default])),
+            vision: Object.fromEntries(Object.entries(VISION_PARAMS).map(([key, spec]) => [key, spec.default])),
             mcp: Object.fromEntries(Object.entries(MCP_PARAMS).map(([key, spec]) => [key, spec.default])),
             storage: Object.fromEntries(Object.entries(STORAGE_PARAMS).map(([key, spec]) => [key, spec.default])),
             // Passwort-Hygiene: `password` bleibt ein leerer Platzhalter (Secret kommt nur aus der Env).
-            db: Object.fromEntries(Object.entries(DB_PARAMS).map(([key, spec]) => [key, spec.default]))
+            db: Object.fromEntries(Object.entries(DB_PARAMS).map(([key, spec]) => [key, spec.default])),
+            docling: Object.fromEntries(Object.entries(DOCLING_PARAMS).map(([key, spec]) => [key, spec.default]))
         };
         writeFileSync(this.configPath, JSON.stringify(defaults, null, 4), 'utf8');
     }
@@ -263,18 +293,23 @@ class Config extends EventEmitter {
             qdrant: { ...this.qdrant },
             embeddings: { ...this.embeddings },
             chat: { ...this.chat },
+            vision: { ...this.vision },
             mcp: { ...this.mcp },
             storage: { ...this.storage },
             // Passwort-Hygiene: `db.password` wird maskiert zurückgegeben, nie der Klartext.
             db: { ...this.db, password: '••••••' },
+            // Secret-Hygiene: `docling.apiKey` wird maskiert zurückgegeben, nie der Klartext.
+            docling: { ...this.docling, apiKey: '••••••' },
             envLocked: {
                 root: { ...this.envLocked.root },
                 qdrant: { ...this.envLocked.qdrant },
                 embeddings: { ...this.envLocked.embeddings },
                 chat: { ...this.envLocked.chat },
+                vision: { ...this.envLocked.vision },
                 mcp: { ...this.envLocked.mcp },
                 storage: { ...this.envLocked.storage },
-                db: { ...this.envLocked.db }
+                db: { ...this.envLocked.db },
+                docling: { ...this.envLocked.docling }
             }
         };
     }
@@ -320,6 +355,12 @@ class Config extends EventEmitter {
         if (typeof c.model !== 'string') errors.push('chat.model muss ein String sein');
         if (typeof c.systemPrompt !== 'string') errors.push('chat.systemPrompt muss ein String sein');
 
+        const v = s.vision || {};
+        if (typeof v.api !== 'string' || !['openai', 'ollama'].includes(v.api))
+            errors.push('vision.api muss "openai" oder "ollama" sein');
+        if (typeof v.url !== 'string') errors.push('vision.url muss ein String sein');
+        if (typeof v.model !== 'string') errors.push('vision.model muss ein String sein');
+
         const m = s.mcp || {};
         if (typeof m.enabled !== 'boolean') errors.push('mcp.enabled muss ein Boolean sein');
         if (typeof m.path !== 'string' || !m.path.startsWith('/'))
@@ -343,6 +384,8 @@ class Config extends EventEmitter {
             errors.push('storage.maxFileSizeMb muss eine Zahl > 0 sein');
         if (!Array.isArray(st.ignore) || st.ignore.some((p) => typeof p !== 'string'))
             errors.push('storage.ignore muss ein Array aus Strings sein');
+        if (!Array.isArray(st.whitelist) || st.whitelist.some((p) => typeof p !== 'string'))
+            errors.push('storage.whitelist muss ein Array aus Strings sein');
 
         const d = s.db || {};
         if (typeof d.host !== 'string' || d.host.trim() === '')
@@ -363,6 +406,12 @@ class Config extends EventEmitter {
             errors.push('db.retryDelaySec muss eine Zahl >= 0 sein');
         if (!Number.isInteger(d.maxRetries) || d.maxRetries < 0 || d.maxRetries > 100)
             errors.push('db.maxRetries muss eine Ganzzahl zwischen 0 und 100 sein');
+
+        const dl = s.docling || {};
+        if (typeof dl.url !== 'string') errors.push('docling.url muss ein String sein');
+        if (typeof dl.apiKey !== 'string') errors.push('docling.apiKey muss ein String sein');
+        if (!Number.isInteger(dl.statusPollIntervalSec) || dl.statusPollIntervalSec < 1)
+            errors.push('docling.statusPollIntervalSec muss eine Ganzzahl >= 1 sein');
 
         return errors;
     }
@@ -401,12 +450,17 @@ class Config extends EventEmitter {
         p.qdrant = this.stripEnvLocked(patch.qdrant, 'qdrant');
         p.embeddings = this.stripEnvLocked(patch.embeddings, 'embeddings');
         p.chat = this.stripEnvLocked(patch.chat, 'chat');
+        p.vision = this.stripEnvLocked(patch.vision, 'vision');
         p.mcp = this.stripEnvLocked(patch.mcp, 'mcp');
         p.storage = this.stripEnvLocked(patch.storage, 'storage');
         p.db = this.stripEnvLocked(patch.db, 'db');
+        p.docling = this.stripEnvLocked(patch.docling, 'docling');
         // Passwort-Hygiene: leerer oder maskierter Passwort-Wert = "unverändert"
         // (der echte Wert kommt ausschließlich aus der Env, nie aus der UI).
         if (p.db && (p.db.password === '' || p.db.password === '••••••')) delete p.db.password;
+        // Secret-Hygiene: leerer oder maskierter API-Key = "unverändert"
+        // (der echte Wert kommt ausschließlich aus der Env, nie aus der UI).
+        if (p.docling && (p.docling.apiKey === '' || p.docling.apiKey === '••••••')) delete p.docling.apiKey;
 
         // Deep-Merge für die verschachtelten Objekte
         const next = {
@@ -415,9 +469,11 @@ class Config extends EventEmitter {
             qdrant: { ...current.qdrant, ...(p.qdrant || {}) },
             embeddings: { ...current.embeddings, ...(p.embeddings || {}) },
             chat: { ...current.chat, ...(p.chat || {}) },
+            vision: { ...current.vision, ...(p.vision || {}) },
             mcp: { ...current.mcp, ...(p.mcp || {}) },
             storage: { ...current.storage, ...(p.storage || {}) },
-            db: { ...current.db, ...(p.db || {}) }
+            db: { ...current.db, ...(p.db || {}) },
+            docling: { ...current.docling, ...(p.docling || {}) }
         };
 
         const errors = this.validateSettings(next);
@@ -436,11 +492,15 @@ class Config extends EventEmitter {
         this.qdrant = { ...next.qdrant };
         this.embeddings = { ...next.embeddings };
         this.chat = { ...next.chat };
+        this.vision = { ...next.vision };
         this.mcp = { ...next.mcp };
         this.storage = { ...next.storage };
         // Passwort-Hygiene: der echte Passwort-Wert (aus der Env) bleibt erhalten;
         // der maskierte UI-Wert darf den Runtime-State nicht überschreiben.
         this.db = { ...next.db, password: this.db.password };
+        // Secret-Hygiene: der echte API-Key (aus der Env) bleibt erhalten;
+        // der maskierte UI-Wert darf den Runtime-State nicht überschreiben.
+        this.docling = { ...next.docling, apiKey: this.docling.apiKey };
 
         // Persistieren (config.json)
         this.persist();
@@ -469,10 +529,13 @@ class Config extends EventEmitter {
                     qdrant: this.qdrant,
                     embeddings: this.embeddings,
                     chat: this.chat,
+                    vision: this.vision,
                     mcp: this.mcp,
                     storage: this.storage,
                     // Passwort-Hygiene: das echte Passwort (aus der Env) wird nie persistiert.
-                    db: { ...this.db, password: '' }
+                    db: { ...this.db, password: '' },
+                    // Secret-Hygiene: der echte API-Key (aus der Env) wird nie persistiert.
+                    docling: { ...this.docling, apiKey: '' }
                 },
                 null,
                 4
@@ -482,4 +545,4 @@ class Config extends EventEmitter {
     }
 }
 
-export { Config, QDRANT_PARAMS, EMBEDDINGS_PARAMS, CHAT_PARAMS, MCP_PARAMS, STORAGE_PARAMS, DB_PARAMS };
+export { Config, QDRANT_PARAMS, EMBEDDINGS_PARAMS, CHAT_PARAMS, VISION_PARAMS, MCP_PARAMS, STORAGE_PARAMS, DB_PARAMS, DOCLING_PARAMS };

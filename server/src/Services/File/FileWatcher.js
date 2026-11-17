@@ -2,6 +2,7 @@ import { watch } from 'chokidar';
 import { existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { toRelPath as toRelPathUtil } from '../../Utils/path.js';
+import { matchesAny } from '../../Utils/glob.js';
 import { noopLogger } from '../../Utils/logger.js';
 
 /**
@@ -98,6 +99,13 @@ class FileWatcher {
     handleEvent(event, fullPath) {
         const relPath = this.toRelPath(fullPath);
         if (!relPath) return;
+        // Whitelist-Filter: nur Files, die min. ein Pattern erfüllen, werden
+        // weitergeleitet (leere Whitelist = kein Filter). Pro Event aus Config
+        // gelesen → Settings-Änderung wirkt sofort.
+        if (!matchesAny(relPath, this.config.storage.whitelist)) {
+            this.logger.log(this.label, 'Event verworfen (Whitelist)', { relPath, event });
+            return;
+        }
         try {
             this.handler(relPath, event);
         } catch (err) {

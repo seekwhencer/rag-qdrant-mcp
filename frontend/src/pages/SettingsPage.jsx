@@ -3,8 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import useSettings from '../hooks/useSettings.js';
 import ServerSettings from '../components/settings/ServerSettings.jsx';
 import QdrantSettings from '../components/settings/QdrantSettings.jsx';
+import DoclingSettings from '../components/settings/DoclingSettings.jsx';
 import EmbeddingsSettings from '../components/settings/EmbeddingsSettings.jsx';
 import ChatSettings from '../components/settings/ChatSettings.jsx';
+import VisionSettings from '../components/settings/VisionSettings.jsx';
 import McpSettings from '../components/settings/McpSettings.jsx';
 import StorageSettings from '../components/settings/StorageSettings.jsx';
 import DatabaseSettings from '../components/settings/DatabaseSettings.jsx';
@@ -15,8 +17,10 @@ const CATEGORIES = [
   { id: 'storage', title: 'settings.categories.storage', component: StorageSettings },
   { id: 'database', title: 'settings.categories.database', component: DatabaseSettings },
   { id: 'qdrant', title: 'settings.categories.qdrant', component: QdrantSettings },
+  { id: 'docling', title: 'settings.categories.docling', component: DoclingSettings },
   { id: 'embeddings', title: 'settings.categories.embeddings', component: EmbeddingsSettings },
   { id: 'chat', title: 'settings.categories.chat', component: ChatSettings },
+  { id: 'vision', title: 'settings.categories.vision', component: VisionSettings },
   { id: 'mcp', title: 'settings.categories.mcp', component: McpSettings },
   { id: 'ui', title: 'settings.categories.ui', component: UiSettings },
 ];

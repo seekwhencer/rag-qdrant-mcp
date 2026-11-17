@@ -1,5 +1,6 @@
 import { QdrantService } from './QdrantService.js';
-import { LlmService } from './LlmService.js';
+import { EmbeddingsService } from './EmbeddingsService.js';
+import { ChatService } from './ChatService.js';
 import { Config } from '../Config.js';
 import { noopLogger } from '../Utils/logger.js';
 
@@ -10,7 +11,8 @@ class SearchService {
     /**
      * @param {object} params - Configuration parameters
      * @param {QdrantService} [params.qdrant] - Qdrant client instance
-     * @param {LlmService} [params.llm] - LLM service instance
+     * @param {EmbeddingsService} [params.embeddings] - Embeddings service instance
+     * @param {ChatService} [params.chat] - Chat service instance
      * @param {string} [params.qdrantUrl] - Qdrant server URL
      * @param {number} [params.qdrantPort] - Qdrant port
      * @param {string} [params.qdrantCollection] - Qdrant collection name
@@ -26,7 +28,8 @@ class SearchService {
      */
     constructor({
         qdrant,
-        llm,
+        embeddings,
+        chat,
         qdrantUrl,
         qdrantPort,
         qdrantCollection,
@@ -47,9 +50,12 @@ class SearchService {
         this.label = '[SearchService]';
         this.logger = logger || noopLogger();
         this.qdrant = qdrant || new QdrantService({ url: qdrantUrl, port: qdrantPort, collection: qdrantCollection, logger: this.logger });
-        this.llm = llm || new LlmService({
-            embeddingsApi, embeddingsUrl, embeddingsModel, embeddingsHost,
-            chatApi, chatUrl, chatModel,
+        this.embeddings = embeddings || new EmbeddingsService({
+            api: embeddingsApi, url: embeddingsUrl, model: embeddingsModel, host: embeddingsHost,
+            logger: this.logger
+        });
+        this.chat = chat || new ChatService({
+            api: chatApi, url: chatUrl, model: chatModel,
             logger: this.logger
         });
     }
@@ -62,7 +68,7 @@ class SearchService {
     async searchAndAnswer(question) {
         try {
             this.logger.log(this.label,`Generating embedding for: "${question}"...`);
-            const queryVector = await this.llm.embed(question);
+            const queryVector = await this.embeddings.embed(question);
 
             this.logger.log(this.label, 'query vector:', queryVector, this.topK);
 
@@ -93,7 +99,7 @@ class SearchService {
                 }
             ];
 
-            const answer = await this.llm.chat(messages);
+            const answer = await this.chat.chat(messages);
 
             this.logger.log(this.label, '\n--- ANSWER ---');
             this.logger.log(this.label,answer);
@@ -114,7 +120,7 @@ class SearchService {
      */
     async *streamAndAnswer(question, { signal } = {}) {
         yield { type: 'status', phase: 'embedding', message: 'Embedding wird erzeugt…' };
-        const queryVector = await this.llm.embed(question);
+        const queryVector = await this.embeddings.embed(question);
 
         yield { type: 'status', phase: 'search', message: 'Durchsuche Dokumente…' };
         const results = await this.qdrant.search(queryVector, this.topK);
@@ -141,7 +147,7 @@ class SearchService {
         ];
 
         yield { type: 'status', phase: 'thinking', message: 'Modell denkt…' };
-        for await (const { phase, token } of this.llm.streamChat(messages, { signal })) {
+        for await (const { phase, token } of this.chat.streamChat(messages, { signal })) {
             yield { type: phase, token };
         }
         yield { type: 'done' };
@@ -155,7 +161,7 @@ class SearchService {
     async searchAndReturnChunks(question) {
         try {
             this.logger.log(this.label,`Generating embedding for: "${question}"...`);
-            const queryVector = await this.llm.embed(question);
+            const queryVector = await this.embeddings.embed(question);
 
             this.logger.log(this.label, 'Searching in Qdrant...');
             const results = await this.qdrant.search(queryVector, this.topK);
