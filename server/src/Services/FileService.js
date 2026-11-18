@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { FileStore } from '../Models/FileStore.js';
 import { DummyProcessor } from './File/FileProcessor.js';
+import { DoclingProcessor } from './File/DoclingProcessor.js';
 import { FileQueue } from './File/FileQueue.js';
 import { FileWatcher } from './File/FileWatcher.js';
 import { broadcastToListeners } from '../Utils/listeners.js';
@@ -35,9 +36,11 @@ class FileService {
      * @param {FileQueue} [params.queue] - injizierbar für Tests
      * @param {FileWatcher} [params.watcher] - injizierbar für Tests
      * @param {(config: object) => FileWatcher} [params.watcherFactory] - injizierbar für Tests
+     * @param {object} [params.qdrant] - QdrantService (von Router via search; nur für DoclingProcessor)
+     * @param {object} [params.embeddings] - EmbeddingsService (von Router via search; nur für DoclingProcessor)
      * @param {number} [params.broadcastDebounceMs=100] - Broadcast-Debounce
      */
-    constructor({ config, logger, database, store, processor, queue, watcher, watcherFactory, broadcastDebounceMs = 100 } = {}) {
+    constructor({ config, logger, database, store, processor, queue, watcher, watcherFactory, qdrant, embeddings, broadcastDebounceMs = 100 } = {}) {
         if (!config || !config.storage) {
             throw new Error('FileService requires a config with a storage group');
         }
@@ -54,7 +57,9 @@ class FileService {
         }
         this.database = database;
         this.store = store || new FileStore({ db: this.database, logger: this.logger });
-        this.processor = processor || new DummyProcessor({ config, store: this.store, logger: this.logger });
+        this.qdrant = qdrant;
+        this.embeddings = embeddings;
+        this.processor = processor || this.createProcessor();
         this.queue = queue || new FileQueue({ config, processor: this.processor, logger: this.logger });
 
         // Watcher-Factory (injizierbar für Tests; Default erzeugt einen FileWatcher).
@@ -85,6 +90,32 @@ class FileService {
         this._storeReconnectTimer = null;
         this._storeConnecting = false;
         this._storeStopped = false;
+    }
+
+    /**
+     * Erzeugt den Processor gemäß `storage.processor`:
+     * - 'dummy' → DummyProcessor.
+     * - 'docling' (Default) → DoclingProcessor; Crash-Schutz: docling.url ODER
+     *   embeddings/qdrant fehlen → DummyProcessor-Fallback + Error-Log (sonst würde
+     *   der DoclingProcessor-Konstruktor werfen → FileService-Konstruktor → Server-Start bricht).
+     * @returns {FileProcessor}
+     */
+    createProcessor() {
+        const kind = this.config.storage.processor || 'docling';
+        if (kind === 'dummy') {
+            return new DummyProcessor({ config: this.config, store: this.store, logger: this.logger });
+        }
+        if (!this.config.docling?.url || !this.embeddings || !this.qdrant) {
+            this.logger.error(this.label, 'storage.processor=docling, aber docling.url/embeddings/qdrant fehlen → Fallback auf DummyProcessor');
+            return new DummyProcessor({ config: this.config, store: this.store, logger: this.logger });
+        }
+        return new DoclingProcessor({
+            config: this.config,
+            store: this.store,
+            embeddings: this.embeddings,
+            qdrant: this.qdrant,
+            logger: this.logger
+        });
     }
 
     /**
@@ -364,6 +395,14 @@ class FileService {
      * @returns {Promise<void>}
      */
     async onConfigChange(payload) {
+        // Processor-Re-Creation zuerst (wirkt in ALLEN Zuständen, auch disabled/pre-start).
+        // FileQueue liest this.processor erst zur Job-Start-Zeit → Reassignment wirkt
+        // ab dem nächsten Job; laufende Jobs bleiben beim alten Processor.
+        if (payload?.changed && (payload.changed.includes('storage') || payload.changed.includes('docling'))) {
+            this.processor = this.createProcessor();
+            this.queue.processor = this.processor;
+        }
+
         // dataDir geändert → Store neu ausrichten (wirkt auch vor start()).
         if (payload?.changed?.includes('dataDir') && this.config.dataDir && typeof this.store.setPath === 'function') {
             const newPath = join(this.config.dataDir, 'files.json');

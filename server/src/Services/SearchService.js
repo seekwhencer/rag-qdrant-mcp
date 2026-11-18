@@ -175,9 +175,7 @@ class SearchService {
                 text: item.payload?.text || '',
                 score: item.score || 0,
                 metadata: {
-                    repository: item.payload?.repository || '',
-                    path: item.payload?.path || '',
-                    ref: item.payload?.ref || ''
+                    path: item.payload?.path || ''
                 }
             }));
 

@@ -4,7 +4,7 @@ const axiosMock = vi.hoisted(() => ({ get: vi.fn() }));
 
 vi.mock('axios', () => ({ default: axiosMock }));
 
-import { DocklingService, STATUS_ENDPOINTS } from '../src/Services/DocklingService.js';
+import { DoclingService, STATUS_ENDPOINTS } from '../src/Services/DoclingService.js';
 
 const BASE = 'http://docling:5001';
 
@@ -26,7 +26,7 @@ function okResponse(data) {
     return { status: 200, data };
 }
 
-describe('DocklingService', () => {
+describe('DoclingService', () => {
     beforeEach(() => {
         axiosMock.get.mockReset();
         axiosMock.get.mockImplementation((url) => {
@@ -43,7 +43,7 @@ describe('DocklingService', () => {
     });
 
     it('polls all six status endpoints and aggregates the result', async () => {
-        const svc = new DocklingService({ config: makeConfig() });
+        const svc = new DoclingService({ config: makeConfig() });
         const status = await svc.poll();
 
         expect(axiosMock.get).toHaveBeenCalledTimes(6);
@@ -62,7 +62,7 @@ describe('DocklingService', () => {
     });
 
     it('sends the API key as Bearer header when configured', async () => {
-        const svc = new DocklingService({ config: makeConfig() });
+        const svc = new DoclingService({ config: makeConfig() });
         await svc.poll();
         for (const call of axiosMock.get.mock.calls) {
             expect(call[1].headers).toEqual({ Authorization: 'Bearer secret-key' });
@@ -70,7 +70,7 @@ describe('DocklingService', () => {
     });
 
     it('sends no Authorization header without an API key', async () => {
-        const svc = new DocklingService({ config: makeConfig({ apiKey: '' }) });
+        const svc = new DoclingService({ config: makeConfig({ apiKey: '' }) });
         await svc.poll();
         for (const call of axiosMock.get.mock.calls) {
             expect(call[1].headers).toEqual({});
@@ -87,7 +87,7 @@ describe('DocklingService', () => {
             }
             return Promise.resolve(okResponse({ status: 'ok' }));
         });
-        const svc = new DocklingService({ config: makeConfig() });
+        const svc = new DoclingService({ config: makeConfig() });
         const status = await svc.poll();
 
         expect(status.reachable).toBe(false);
@@ -98,7 +98,7 @@ describe('DocklingService', () => {
 
     it('captures network errors per endpoint', async () => {
         axiosMock.get.mockRejectedValue({ message: 'timeout of 5000ms exceeded' });
-        const svc = new DocklingService({ config: makeConfig() });
+        const svc = new DoclingService({ config: makeConfig() });
         const status = await svc.poll();
 
         expect(status.reachable).toBe(false);
@@ -109,7 +109,7 @@ describe('DocklingService', () => {
     });
 
     it('does not poll when no URL is configured', async () => {
-        const svc = new DocklingService({ config: makeConfig({ url: '' }) });
+        const svc = new DoclingService({ config: makeConfig({ url: '' }) });
         svc.start();
         await flush();
         expect(axiosMock.get).not.toHaveBeenCalled();
@@ -120,7 +120,7 @@ describe('DocklingService', () => {
     it('polls immediately on start and on the configured interval', async () => {
         vi.useFakeTimers();
         try {
-            const svc = new DocklingService({ config: makeConfig({ statusPollIntervalSec: 30 }) });
+            const svc = new DoclingService({ config: makeConfig({ statusPollIntervalSec: 30 }) });
             svc.start();
             await vi.advanceTimersByTimeAsync(0);
             expect(axiosMock.get).toHaveBeenCalledTimes(6);
@@ -135,7 +135,7 @@ describe('DocklingService', () => {
 
     it('restarts polling when the docling config changes', async () => {
         const config = makeConfig();
-        const svc = new DocklingService({ config });
+        const svc = new DoclingService({ config });
         svc.start();
         await flush();
         expect(axiosMock.get).toHaveBeenCalledTimes(6);
@@ -150,7 +150,7 @@ describe('DocklingService', () => {
 
     it('ignores config changes of other groups', async () => {
         const config = makeConfig();
-        const svc = new DocklingService({ config });
+        const svc = new DoclingService({ config });
         svc.start();
         await flush();
         expect(axiosMock.get).toHaveBeenCalledTimes(6);
@@ -165,7 +165,7 @@ describe('DocklingService', () => {
         vi.useFakeTimers();
         try {
             const config = makeConfig();
-            const svc = new DocklingService({ config });
+            const svc = new DoclingService({ config });
             svc.start();
             await vi.advanceTimersByTimeAsync(0);
             expect(axiosMock.get).toHaveBeenCalledTimes(6);

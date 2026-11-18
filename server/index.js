@@ -1,4 +1,4 @@
-import { DocklingService } from './src/Services/DocklingService.js';
+import { DoclingService } from './src/Services/DoclingService.js';
 import { Config } from './src/Config.js';
 import { Logger } from './src/Logger.js';
 import { Server } from './src/Server.js';
@@ -71,9 +71,9 @@ class App {
             logger: this.logger
         });
 
-        this.dockling = new DocklingService({ config: this.config, logger: this.logger });
+        this.docling = new DoclingService({ config: this.config, logger: this.logger });
 
-        this.server = new Server(this.config, this.search, this.database, this.logger, this.dockling);
+        this.server = new Server(this.config, this.search, this.database, this.logger, this.docling);
     }
 
     async run() {

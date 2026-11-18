@@ -28,23 +28,21 @@ describe('Qdrant', () => {
 
     it('upsert sends a deterministic id and a full payload', async () => {
         const q = new QdrantService({ url: 'http://q', port: 80, collection: 'research' });
-        await q.upsert([0.1, 0.2], { text: 'hello', path: 'a.md', source: 'a.md', repository: 'repo', ref: 'main' });
+        await q.upsert([0.1, 0.2], { text: 'hello', path: 'a.md', source: 'a.md' });
 
         expect(clientMock.upsert).toHaveBeenCalledTimes(1);
         const [collection, payload] = clientMock.upsert.mock.calls[0];
         expect(collection).toBe('research');
 
         const point = payload.points[0];
-        const hex = createHash('sha256').update('hello\0repo').digest('hex');
+        const hex = createHash('sha256').update('hello\0a.md').digest('hex');
         const expectedId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
         expect(point.id).toBe(expectedId);
         expect(point.vector).toEqual([0.1, 0.2]);
         expect(point.payload).toEqual({
             text: 'hello',
             path: 'a.md',
-            source: 'a.md',
-            repository: 'repo',
-            ref: 'main'
+            source: 'a.md'
         });
     });
 
@@ -55,7 +53,7 @@ describe('Qdrant', () => {
         clientMock.collectionExists.mockResolvedValue({ result: false });
 
         const q = new QdrantService({ url: 'http://q', collection: 'research' });
-        await q.upsert([0.1], { text: 'x', source: 'x.md', repository: 'r' });
+        await q.upsert([0.1], { text: 'x', source: 'x.md' });
 
         expect(clientMock.collectionExists).toHaveBeenCalledTimes(1);
         expect(clientMock.createCollection).toHaveBeenCalledWith('research', {

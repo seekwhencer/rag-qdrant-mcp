@@ -5,6 +5,7 @@ import useSettingsGroup from '../../hooks/useSettingsGroup.js';
 
 const FIELDS = [
   { key: 'enabled', type: 'checkbox', label: 'settings.storage.enabled', hint: 'settings.storage.enabledHint' },
+  { key: 'processor', type: 'select', label: 'settings.storage.processor', hint: 'settings.storage.processorHint', options: ['docling', 'dummy'] },
   { key: 'root', type: 'text', label: 'settings.storage.root', hint: 'settings.storage.rootHint', placeholder: 'settings.storage.rootPlaceholder' },
   { key: 'concurrency', type: 'number', label: 'settings.storage.concurrency', hint: 'settings.storage.concurrencyHint', min: 1, max: 16, step: 1 },
   { key: 'dummyDelaySec', type: 'number', label: 'settings.storage.dummyDelaySec', hint: 'settings.storage.dummyDelaySecHint', min: 0, step: 0.5 },

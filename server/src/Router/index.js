@@ -24,17 +24,17 @@ class Router {
      * @param {McpService} mcpService - MCP service
      * @param {LogService} logService - Log buffer / broadcast service
      * @param {Database} database - zentrale Database-Instanz (Pool-Eigentümer)
-     * @param {DocklingService} [dockling] - Dockling service (docling-serve Status-Polling)
+     * @param {DoclingService} [docling] - Docling service (docling-serve Status-Polling)
      * @param {Logger} [logger] - Logger instance
      */
-    constructor(config, search, httpServer, mcpService, logService, database, dockling, logger) {
+    constructor(config, search, httpServer, mcpService, logService, database, docling, logger) {
         this.search = search;
         this.config = config;
         this.mcpService = mcpService;
         this.httpServer = httpServer;
         this.logService = logService;
         this.database = database;
-        this.dockling = dockling;
+        this.docling = docling;
         this.label = '[Router]';
         this.logger = logger || { log: () => {}, error: () => {} };
 
@@ -82,7 +82,13 @@ class Router {
         //
         // Files: Datei-Verwaltung (Watcher + Queue) + WebSocket (/files).
         // Vor dem Dashboard erzeugt: das Dashboard aggregiert die File-Statistik.
-        this.fileService = new FileService({ config: this.config, database: this.database, logger: this.logger });
+        this.fileService = new FileService({
+            config: this.config,
+            database: this.database,
+            qdrant: this.search?.qdrant,
+            embeddings: this.search?.embeddings,
+            logger: this.logger
+        });
         this.filesWs = new FilesWebSocket(this.fileService, this.logger);
 
         //
@@ -91,7 +97,7 @@ class Router {
             config: this.config,
             qdrant: this.search?.qdrant,
             mcpSessions: this.mcpSessions,
-            dockling: this.dockling,
+            docling: this.docling,
             logService: this.logService,
             database: this.database,
             fileService: this.fileService,
@@ -112,7 +118,7 @@ class Router {
 
         // Start: Session-Sweep + Docling-Poll + Dashboard-Refresh + Files (Watcher + Initial-Scan).
         this.mcpSessions.start();
-        this.dockling?.start();
+        this.docling?.start();
         this.dashboardService.start();
         this.fileService.start();
     }

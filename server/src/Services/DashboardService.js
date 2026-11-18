@@ -23,20 +23,20 @@ class DashboardService {
      * @param {Config} params.config
      * @param {Qdrant} [params.qdrant]
      * @param {McpSessionsService} params.mcpSessions
-     * @param {DocklingService} [params.dockling]
+     * @param {DoclingService} [params.docling]
      * @param {LogService} [params.logService]
      * @param {Database} [params.database] - zentrale Database-Instanz (Status für das Dashboard)
      * @param {FileService} [params.fileService] - File-Service (Root + Queue-Statistik, Push bei Changes)
      * @param {Logger} [params.logger]
      * @param {number} [params.refreshIntervalMs] - Serverseitiges Qdrant-Refresh-Intervall
      */
-    constructor({ config, qdrant, mcpSessions, dockling, logService, database, fileService, logger, refreshIntervalMs = 30 * 1000 } = {}) {
+    constructor({ config, qdrant, mcpSessions, docling, logService, database, fileService, logger, refreshIntervalMs = 30 * 1000 } = {}) {
         this.label = '[Dashboard]';
         this.logger = logger || noopLogger();
         this.config = config;
         this.qdrant = qdrant;
         this.mcpSessions = mcpSessions;
-        this.dockling = dockling;
+        this.docling = docling;
         this.logService = logService;
         this.database = database;
         this.fileService = fileService;
@@ -45,7 +45,7 @@ class DashboardService {
         this.timer = null;
         this._unsubMcp = null;
         this._onQdrantStatus = null;
-        this._onDocklingStatus = null;
+        this._onDoclingStatus = null;
         this._unsubFiles = null;
         this.qdrantStatus = { reachable: false, version: null, points: null, checkedAt: null };
         this.lastSnapshot = null;
@@ -66,11 +66,11 @@ class DashboardService {
         }
 
         // Docling-Poll: bei jedem Status-Update sofort aktualisieren.
-        if (this.dockling && typeof this.dockling.on === 'function') {
-            this._onDocklingStatus = () => {
+        if (this.docling && typeof this.docling.on === 'function') {
+            this._onDoclingStatus = () => {
                 this.refresh().catch((err) => this.logger.error(this.label, `refresh failed: ${err.message}`));
             };
-            this.dockling.on('status', this._onDocklingStatus);
+            this.docling.on('status', this._onDoclingStatus);
         }
 
         // Files: bei jedem File-Change (Queue/Store/Config) sofort aktualisieren.
@@ -96,10 +96,10 @@ class DashboardService {
             this.qdrant.off('status', this._onQdrantStatus);
         }
         this._onQdrantStatus = null;
-        if (this.dockling && this._onDocklingStatus && typeof this.dockling.off === 'function') {
-            this.dockling.off('status', this._onDocklingStatus);
+        if (this.docling && this._onDoclingStatus && typeof this.docling.off === 'function') {
+            this.docling.off('status', this._onDoclingStatus);
         }
-        this._onDocklingStatus = null;
+        this._onDoclingStatus = null;
         this._unsubFiles?.();
         this._unsubFiles = null;
         if (this.timer) {
@@ -188,8 +188,8 @@ class DashboardService {
                     ...this.fileService.queue.stats()
                 }
                 : null,
-            docling: this.dockling
-                ? this.dockling.getStatus()
+            docling: this.docling
+                ? this.docling.getStatus()
                 : {
                     configured: false,
                     url: this.config.docling?.url || '',

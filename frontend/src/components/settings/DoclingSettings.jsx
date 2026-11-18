@@ -7,6 +7,11 @@ const FIELDS = [
   { key: 'url', type: 'text', label: 'settings.docling.url', hint: 'settings.docling.urlHint', placeholder: 'settings.docling.urlPlaceholder' },
   { key: 'apiKey', type: 'password', label: 'settings.docling.apiKey', hint: 'settings.docling.apiKeyHint' },
   { key: 'statusPollIntervalSec', type: 'number', label: 'settings.docling.statusPollIntervalSec', hint: 'settings.docling.statusPollIntervalSecHint', min: 1, step: 1 },
+  { key: 'timeoutSec', type: 'number', label: 'settings.docling.timeoutSec', hint: 'settings.docling.timeoutSecHint', min: 1, step: 1 },
+  { key: 'maxTokens', type: 'number', label: 'settings.docling.maxTokens', hint: 'settings.docling.maxTokensHint', min: 0, step: 1 },
+  { key: 'useMarkdownTables', type: 'checkbox', label: 'settings.docling.useMarkdownTables', hint: 'settings.docling.useMarkdownTablesHint' },
+  { key: 'useMarkdownImages', type: 'checkbox', label: 'settings.docling.useMarkdownImages', hint: 'settings.docling.useMarkdownImagesHint' },
+  { key: 'ocr', type: 'checkbox', label: 'settings.docling.ocr', hint: 'settings.docling.ocrHint' },
 ];
 const FIELD_KEYS = FIELDS.map((f) => f.key);
 

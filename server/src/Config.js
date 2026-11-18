@@ -73,6 +73,7 @@ const MCP_PARAMS = {
  */
 const STORAGE_PARAMS = {
     enabled: { env: 'STORAGE_ENABLED', type: 'boolean', default: true },
+    processor: { env: 'STORAGE_PROCESSOR', type: 'string', default: 'docling' },
     root: { env: 'STORAGE_ROOT', type: 'string', default: './storage' },
     concurrency: { env: 'STORAGE_CONCURRENCY', type: 'integer', default: 1 },
     dummyDelaySec: { env: 'STORAGE_DUMMY_DELAY_SEC', type: 'number', default: 2 },
@@ -116,6 +117,11 @@ const DOCLING_PARAMS = {
     apiKey: { env: 'DOCLING_API_KEY', type: 'string', default: '' },
     // Status-Polling: Abstand zwischen Status-Abfragen der docling-serve-Instanz (Sekunden).
     statusPollIntervalSec: { env: 'DOCLING_STATUS_POLL_INTERVAL_SEC', type: 'integer', default: 30 },
+    timeoutSec: { env: 'DOCLING_TIMEOUT_SEC', type: 'integer', default: 300 },
+    maxTokens: { env: 'DOCLING_MAX_TOKENS', type: 'integer', default: 512 },
+    useMarkdownTables: { env: 'DOCLING_USE_MARKDOWN_TABLES', type: 'boolean', default: true },
+    useMarkdownImages: { env: 'DOCLING_USE_MARKDOWN_IMAGES', type: 'boolean', default: false },
+    ocr: { env: 'DOCLING_OCR', type: 'boolean', default: true },
 };
 
 /**
@@ -370,6 +376,8 @@ class Config extends EventEmitter {
 
         const st = s.storage || {};
         if (typeof st.enabled !== 'boolean') errors.push('storage.enabled muss ein Boolean sein');
+        if (typeof st.processor !== 'string' || !['docling', 'dummy'].includes(st.processor))
+            errors.push('storage.processor muss "docling" oder "dummy" sein');
         if (typeof st.root !== 'string' || st.root.trim() === '')
             errors.push('storage.root muss ein nicht-leerer String sein');
         if (!Number.isInteger(st.concurrency) || st.concurrency < 1 || st.concurrency > 16)
@@ -412,6 +420,16 @@ class Config extends EventEmitter {
         if (typeof dl.apiKey !== 'string') errors.push('docling.apiKey muss ein String sein');
         if (!Number.isInteger(dl.statusPollIntervalSec) || dl.statusPollIntervalSec < 1)
             errors.push('docling.statusPollIntervalSec muss eine Ganzzahl >= 1 sein');
+        if (!Number.isInteger(dl.timeoutSec) || dl.timeoutSec < 1)
+            errors.push('docling.timeoutSec muss eine Ganzzahl >= 1 sein');
+        if (!Number.isInteger(dl.maxTokens) || dl.maxTokens < 0)
+            errors.push('docling.maxTokens muss eine Ganzzahl >= 0 sein');
+        if (typeof dl.useMarkdownTables !== 'boolean')
+            errors.push('docling.useMarkdownTables muss ein Boolean sein');
+        if (typeof dl.useMarkdownImages !== 'boolean')
+            errors.push('docling.useMarkdownImages muss ein Boolean sein');
+        if (typeof dl.ocr !== 'boolean')
+            errors.push('docling.ocr muss ein Boolean sein');
 
         return errors;
     }

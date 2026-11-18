@@ -229,7 +229,17 @@
       "apiKey": "API Key",
       "apiKeyHint": "Leave empty = unchanged. Env `DOCLING_API_KEY` takes precedence.",
       "statusPollIntervalSec": "Status poll interval (seconds)",
-      "statusPollIntervalSecHint": "How often the docling-serve instance status is polled."
+      "statusPollIntervalSecHint": "How often the docling-serve instance status is polled.",
+      "timeoutSec": "Chunking timeout (seconds)",
+      "timeoutSecHint": "Max. wait time for the docling chunking call per file.",
+      "maxTokens": "Max. tokens per chunk",
+      "maxTokensHint": "Chunk size in tokens. 0 = docling auto.",
+      "useMarkdownTables": "Tables as Markdown",
+      "useMarkdownTablesHint": "Embed tables as Markdown tables (instead of triplets) in chunks.",
+      "useMarkdownImages": "Image references",
+      "useMarkdownImagesHint": "Embed image references in chunks.",
+      "ocr": "OCR",
+      "ocrHint": "OCR for bitmap content (slow, but needed for scanned documents)."
     },
     "embeddings": {
       "title": "Embeddings",
@@ -269,6 +279,8 @@
       "title": "File management",
       "enabled": "Enabled",
       "enabledHint": "Watches the storage folder and processes changes.",
+      "processor": "Processor",
+      "processorHint": "docling = chunking + embeddings + Qdrant. dummy = simulate only (test). Falls back to dummy automatically when docling.url is empty.",
       "root": "Root folder",
       "rootHint": "Path of the storage volume (in the container). Changing it restarts the watcher.",
       "rootPlaceholder": "e.g. /app/storage",

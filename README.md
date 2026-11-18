@@ -35,9 +35,9 @@ A Node.js service that provides **RAG** (Retrieval-Augmented Generation) over a
 
 ![Dashboard (dark)](.docs/screenshots/dashboard-dark.png)
 
-The service does not host Qdrant, the embedding model, or the chat LLM — it only
-orchestrates reading/writing to those external services. Provide their URLs via
-environment variables (see Configuration).
+The service does not host Qdrant, docling-serve, the embedding model, or the chat
+LLM — it only orchestrates reading/writing to those external services. Provide
+their URLs via environment variables (see Configuration).
 
 ## Prerequisites
 
@@ -45,6 +45,7 @@ environment variables (see Configuration).
 - A running **[Qdrant](https://qdrant.tech)** instance reachable at `QDRANT_URL`:`QDRANT_PORT`.
 - An LLM host supporting the embedding and chat APIs you configure (`EMBEDDINGS_API`, `CHAT_API`), e.g. [Ollama](https://ollama.com) or a llama.cpp-compatible OpenAI endpoint.
 - **MariaDB** (required) — provided as a Compose service via `compose-db.yml` (see [Database](#database-mariadb)).
+- A running **docling-serve** instance (required for real file processing) reachable at `DOCLING_URL` — provided as a Compose service via `compose-docling.yml` (see [Docling Processing](#docling-processing)). Without it, the service falls back to the dummy processor.
 
 ## Installation and Start with Docker
 
@@ -66,6 +67,14 @@ For local development with hot reload:
 
 ```bash
 docker compose -f compose-dev.yml -f compose-db.yml up --build
+```
+
+To also run a [docling-serve](https://github.com/docling-project/docling-serve)
+instance for real file processing (chunking → embeddings → Qdrant), add the
+`compose-docling.yml` overlay:
+
+```bash
+docker compose -f compose.yml -f compose-db.yml -f compose-docling.yml up --build
 ```
 
 > **Note:** `docker compose up` without `-f compose-db.yml` is **not** a valid
@@ -91,6 +100,11 @@ passed via `compose.yml` using a `.env` file:
 | `DOCLING_URL`      | Base URL of the docling-serve instance (e.g. `http://localhost:5001`)                                                 |
 | `DOCLING_API_KEY`  | API key for the docling-serve instance (never persisted to `config.json`)                                             |
 | `DOCLING_STATUS_POLL_INTERVAL_SEC` | How often the docling-serve instance status is polled, in seconds (default: `30`)                          |
+| `DOCLING_TIMEOUT_SEC`  | Timeout for the docling chunking request per file, in seconds (default: `300`)                              |
+| `DOCLING_MAX_TOKENS`   | Max. tokens per chunk (default: `512`, `0` = docling auto)                                                  |
+| `DOCLING_USE_MARKDOWN_TABLES` | Embed tables as Markdown in chunks (`true`/`false`, default: `true`)                                   |
+| `DOCLING_USE_MARKDOWN_IMAGES` | Embed image references in chunks (`true`/`false`, default: `false`)                                    |
+| `DOCLING_OCR`          | Run OCR for bitmap content (`true`/`false`, default: `true`)                                               |
 | `EMBEDDINGS_API`   | Embedding backend: `ollama` (default) posts to `{URL}/api/embed`, `openai` posts to `{URL}/embeddings`               |
 | `EMBEDDINGS_URL`   | Base URL of the embedding LLM host (e.g. `http://localhost:11434` for Ollama or `http://localhost:8080/v1` for llama.cpp) |
 | `EMBEDDINGS_HOST`  | Optional `Host` header sent with embedding requests (useful behind a reverse proxy)                                   |
@@ -125,12 +139,14 @@ not written automatically; call `Config.saveDefaults()` (or run
 
 The service watches a storage folder (a Docker shared volume) for file changes and
 processes them through a background queue. Every `create`, `modify` and `delete`
-event enqueues a job; a dummy processing step waits a configurable number of
-seconds per file and event before the job is marked done. The folder structure is
-mirrored in **MariaDB** (table `files`, database `ragqdrant`) with per-file
-metadata — deleted files are kept as tombstones (`status='deleted'` + `deleted_at`),
-never removed. MariaDB is the **only** store backend (no JSON fallback, no
-driver switch); see [Database](#database-mariadb).
+event enqueues a job. The default processor (`STORAGE_PROCESSOR=docling`) runs the
+real pipeline: docling chunking → embeddings → Qdrant indexing (see
+[Docling Processing](#docling-processing)). The `dummy` processor only simulates
+processing (test mode). The folder structure is mirrored in **MariaDB** (table
+`files`, database `ragqdrant`) with per-file metadata — deleted files are kept as
+tombstones (`status='deleted'` + `deleted_at`), never removed. MariaDB is the
+**only** store backend (no JSON fallback, no driver switch); see
+[Database](#database-mariadb).
 
 - Drop files into the `storage/` folder (mounted at `/app/storage` in the
   container) to enqueue them. Files already present are picked up on startup via
@@ -144,11 +160,52 @@ driver switch); see [Database](#database-mariadb).
 
 | Variable                  | Description                                                                                     |
 | ------------------------- | ----------------------------------------------------------------------------------------------- |
+| `STORAGE_PROCESSOR`       | File processor: `docling` (default, real pipeline) or `dummy` (simulate only)                  |
 | `STORAGE_ROOT`            | Root folder watched by the file watcher (default: `./storage`, `/app/storage` in Docker)       |
 | `STORAGE_CONCURRENCY`     | Number of jobs processed in parallel (default: `1` = sequential)                                |
 | `STORAGE_DUMMY_DELAY_SEC` | Dummy processing delay per file and event, in seconds (default: `2`)                            |
 | `STORAGE_RETRY_DELAY_SEC` | Wait time before a failed job is retried, in seconds (default: `5`)                             |
 | `STORAGE_MAX_RETRIES`     | Max retries per job (default: `3`, `0` disables retries)                                        |
+| `STORAGE_MAX_FILE_SIZE_MB`| Max. file size in MB — larger files are skipped (default: `1024`)                               |
+| `STORAGE_IGNORE`          | Glob patterns to ignore (default: `**/.git/**`, `**/node_modules/**`)                           |
+| `STORAGE_WHITELIST`       | Glob patterns to include; empty = all files (e.g. `**/*.md`)                                    |
+
+## Docling Processing
+
+The default file processor (`STORAGE_PROCESSOR=docling`) runs the real processing
+pipeline for every `create`/`modify` event:
+
+1. **Chunking** — the file is sent to docling-serve
+   (`POST /v1/chunk/hybrid/file`, multipart, `X-Api-Key` auth) and split into
+   contextualized chunks.
+2. **Orphan cleanup** — all previously indexed chunks of the file are removed from
+   Qdrant first, so modified files never leave stale chunks behind.
+3. **Embeddings + indexing** — each chunk is embedded with the configured embedding
+   model and upserted into the Qdrant collection (`QDRANT_COLLECTION`). Point IDs
+   are deterministic per file + chunk text, so re-indexing is idempotent.
+4. **Bookkeeping** — the file entry in MariaDB is updated with `status='done'` and
+   the resulting `chunkCount`.
+
+`delete` events remove the file's chunks from Qdrant and keep a tombstone in
+MariaDB. Files larger than `STORAGE_MAX_FILE_SIZE_MB` (default `1024`) are skipped,
+and docling 4xx errors (except 408/429) fail the job without retry.
+
+If `DOCLING_URL` is empty (or embeddings/Qdrant are missing), the service falls
+back to the `dummy` processor and logs a prominent error — the queue keeps running
+and no jobs fail.
+
+### Running docling-serve
+
+The `compose-docling.yml` overlay starts a `docling-serve` container on port `5001`
+with a healthcheck and a persistent cache volume:
+
+```bash
+docker compose -f compose.yml -f compose-db.yml -f compose-docling.yml up --build
+```
+
+Then set `DOCLING_URL=http://localhost:5001` in `.env` or the Settings UI
+(**Settings → Docling**). The dashboard shows the live docling-serve status
+(health, readiness, capabilities, version, memory).
 
 ## Database (MariaDB)
 
@@ -280,7 +337,8 @@ node index.js
 ### Frontend
 
 - The service ships a Vite + React (19) web UI in `frontend/` with a full settings
-  panel (Server, Files, Qdrant, Embeddings, Chat, MCP, UI) and an About page.
+  panel (Server, Files, Database, Qdrant, Docling, Embeddings, Chat, Vision, MCP,
+  UI) and an About page.
 - The Express server serves the UI transparently: in development it runs the Vite
   dev server as middleware (hot reload), in production it serves the built files
   from `frontend/dist` with a SPA fallback (`server/src/Router/FrontendRouter.js`).

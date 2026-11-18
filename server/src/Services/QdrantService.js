@@ -194,17 +194,11 @@ class QdrantService extends EventEmitter {
      * Upserts a single vector point with text payload into the collection.
      * Auto-creates the collection if it does not exist.
      * @param {number[]} vector - The embedding vector
-     * @param {{text: string, source?: string, repository?: string}} meta - Point metadata (path alias = source)
+     * @param {{text: string, source?: string}} meta - Point metadata (path alias = source)
      * @returns {Promise<void>}
      */
-    async upsert(vector, {
-        text: chunkText = '',
-        path,
-        source = '',
-        repository = '',
-        ref = ''
-    } = {}) {
-        const hex = sha256Hex(`${chunkText}\0${repository}`);
+    async upsert(vector, { text: chunkText = '', path, source = '' } = {}) {
+        const hex = sha256Hex(`${chunkText}\0${source}`);
         // Qdrant requires point IDs to be unsigned integers or UUIDs; a raw hex hash is neither.
         const id = hashToUuid(hex);
 
@@ -219,9 +213,7 @@ class QdrantService extends EventEmitter {
                     payload: {
                         text: chunkText,
                         path: payloadPath,
-                        source: String(source) || '',
-                        repository: String(repository),
-                        ref: String(ref)
+                        source: String(source) || ''
                     }
                 }
             ]

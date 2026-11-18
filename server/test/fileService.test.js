@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileService } from '../src/Services/FileService.js';
 import { FileQueue } from '../src/Services/File/FileQueue.js';
+import { DoclingProcessor } from '../src/Services/File/DoclingProcessor.js';
+import { DummyProcessor } from '../src/Services/File/FileProcessor.js';
 import { Config } from '../src/Config.js';
 
 function makeRealConfig() {
@@ -444,6 +446,131 @@ describe('FileService', () => {
         config.storage.enabled = true;
         await service.onConfigChange();
         expect(watcher.started).toBe(1);
+    });
+});
+
+describe('FileService Processor-Auswahl (Schritt 4)', () => {
+    function makeDoclingConfig(overrides = {}) {
+        return {
+            dataDir: '/tmp/data',
+            storage: {
+                enabled: true,
+                root: '/tmp/storage',
+                concurrency: 1,
+                dummyDelaySec: 0,
+                retryDelaySec: 5,
+                maxRetries: 3,
+                maxFileSizeMb: 1024,
+                ignore: [],
+                processor: 'docling',
+                ...overrides
+            },
+            docling: {
+                url: 'http://docling:5001',
+                apiKey: 'dk-test',
+                timeoutSec: 300,
+                maxTokens: 512,
+                useMarkdownTables: true,
+                useMarkdownImages: false,
+                ocr: true
+            }
+        };
+    }
+
+    function makeMockEmbeddings() {
+        return { embed: async () => [0.1, 0.2] };
+    }
+
+    function makeMockQdrant() {
+        return { upsert: async () => {}, deleteBySource: async () => {} };
+    }
+
+    function makeLogger(logs) {
+        return {
+            log: (label, ...args) => logs.push([label, ...args]),
+            error: (label, ...args) => logs.push([label, ...args])
+        };
+    }
+
+    it('docling + URL → DoclingProcessor wird erzeugt', () => {
+        const config = makeDoclingConfig();
+        const service = new FileService({
+            config,
+            database: makeMockDatabase(),
+            store: makeMockStore(),
+            embeddings: makeMockEmbeddings(),
+            qdrant: makeMockQdrant(),
+            watcher: makeMockWatcher()
+        });
+        expect(service.processor).toBeInstanceOf(DoclingProcessor);
+    });
+
+    it('docling ohne URL → DummyProcessor-Fallback + Error-Log', () => {
+        const config = makeDoclingConfig();
+        config.docling.url = '';
+        const logs = [];
+        const service = new FileService({
+            config,
+            database: makeMockDatabase(),
+            store: makeMockStore(),
+            embeddings: makeMockEmbeddings(),
+            qdrant: makeMockQdrant(),
+            watcher: makeMockWatcher(),
+            logger: makeLogger(logs)
+        });
+        expect(service.processor).toBeInstanceOf(DummyProcessor);
+        expect(logs.some((l) => l.slice(1).join(' ').includes('Fallback auf DummyProcessor'))).toBe(true);
+    });
+
+    it('docling + URL, aber embeddings/qdrant fehlen → DummyProcessor-Fallback + Error-Log', () => {
+        const config = makeDoclingConfig();
+        const logs = [];
+        const service = new FileService({
+            config,
+            database: makeMockDatabase(),
+            store: makeMockStore(),
+            watcher: makeMockWatcher(),
+            logger: makeLogger(logs)
+        });
+        expect(service.processor).toBeInstanceOf(DummyProcessor);
+        expect(logs.some((l) => l.slice(1).join(' ').includes('Fallback auf DummyProcessor'))).toBe(true);
+    });
+
+    it('dummy → DummyProcessor', () => {
+        const config = makeDoclingConfig({ processor: 'dummy' });
+        const service = new FileService({
+            config,
+            database: makeMockDatabase(),
+            store: makeMockStore(),
+            embeddings: makeMockEmbeddings(),
+            qdrant: makeMockQdrant(),
+            watcher: makeMockWatcher()
+        });
+        expect(service.processor).toBeInstanceOf(DummyProcessor);
+    });
+
+    it('Config-Change docling → queue.processor wird neu erzeugt', async () => {
+        const config = makeDoclingConfig();
+        const queue = new FileQueue({ config, processor: makeMockProcessor() });
+        const service = new FileService({
+            config,
+            database: makeMockDatabase(),
+            store: makeMockStore(),
+            embeddings: makeMockEmbeddings(),
+            qdrant: makeMockQdrant(),
+            queue,
+            watcher: makeMockWatcher()
+        });
+
+        const before = service.processor;
+        expect(before).toBeInstanceOf(DoclingProcessor);
+
+        config.docling.url = 'http://docling:5002';
+        await service.onConfigChange({ changed: ['docling'] });
+
+        expect(service.processor).not.toBe(before);
+        expect(service.processor).toBeInstanceOf(DoclingProcessor);
+        expect(queue.processor).toBe(service.processor);
     });
 });
 

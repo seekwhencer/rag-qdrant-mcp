@@ -229,7 +229,17 @@
       "apiKey": "API-Key",
       "apiKeyHint": "Leer lassen = unverändert. Env `DOCLING_API_KEY` hat Vorrang.",
       "statusPollIntervalSec": "Status-Poll-Intervall (Sekunden)",
-      "statusPollIntervalSecHint": "Wie oft der Status der docling-serve-Instanz abgefragt wird."
+      "statusPollIntervalSecHint": "Wie oft der Status der docling-serve-Instanz abgefragt wird.",
+      "timeoutSec": "Chunking-Timeout (Sekunden)",
+      "timeoutSecHint": "Max. Wartezeit für den docling-Chunking-Call pro File.",
+      "maxTokens": "Max. Tokens pro Chunk",
+      "maxTokensHint": "Chunk-Größe in Tokens. 0 = docling-Auto.",
+      "useMarkdownTables": "Tabellen als Markdown",
+      "useMarkdownTablesHint": "Tabellen als Markdown-Tabellen (statt Triplets) in Chunks.",
+      "useMarkdownImages": "Bild-Referenzen",
+      "useMarkdownImagesHint": "Bild-Referenzen in Chunks einbetten.",
+      "ocr": "OCR",
+      "ocrHint": "OCR für Bitmap-Inhalte (langsam, aber nötig für gescannte Dokumente)."
     },
     "embeddings": {
       "title": "Embeddings",
@@ -269,6 +279,8 @@
       "title": "Datei-Verwaltung",
       "enabled": "Aktiviert",
       "enabledHint": "Überwacht den Storage-Ordner und verarbeitet Änderungen.",
+      "processor": "Processor",
+      "processorHint": "docling = Chunking + Embeddings + Qdrant. dummy = nur simulieren (Test). Ohne docling.url greift automatisch dummy.",
       "root": "Root-Ordner",
       "rootHint": "Pfad des Storage-Volumes (im Container). Wechsel startet den Watcher neu.",
       "rootPlaceholder": "z. B. /app/storage",

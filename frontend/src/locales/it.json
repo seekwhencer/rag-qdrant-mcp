@@ -229,7 +229,17 @@
       "apiKey": "API Key",
       "apiKeyHint": "Lascia vuoto = invariato. La variabile d'ambiente `DOCLING_API_KEY` ha la precedenza.",
       "statusPollIntervalSec": "Intervallo polling stato (secondi)",
-      "statusPollIntervalSecHint": "Con quale frequenza viene interrogato lo stato dell'istanza docling-serve."
+      "statusPollIntervalSecHint": "Con quale frequenza viene interrogato lo stato dell'istanza docling-serve.",
+      "timeoutSec": "Timeout chunking (secondi)",
+      "timeoutSecHint": "Tempo massimo di attesa per la chiamata di chunking docling per file.",
+      "maxTokens": "Token max. per chunk",
+      "maxTokensHint": "Dimensione del chunk in token. 0 = auto docling.",
+      "useMarkdownTables": "Tabelle come Markdown",
+      "useMarkdownTablesHint": "Incorpora le tabelle come tabelle Markdown (anziché triplets) nei chunk.",
+      "useMarkdownImages": "Riferimenti alle immagini",
+      "useMarkdownImagesHint": "Incorpora i riferimenti alle immagini nei chunk.",
+      "ocr": "OCR",
+      "ocrHint": "OCR per contenuti bitmap (lento, ma necessario per documenti scansionati)."
     },
     "embeddings": {
       "title": "Embeddings",
@@ -269,6 +279,8 @@
       "title": "Gestione file",
       "enabled": "Attivato",
       "enabledHint": "Sorveglia la cartella di storage ed elabora le modifiche.",
+      "processor": "Processore",
+      "processorHint": "docling = chunking + embeddings + Qdrant. dummy = solo simulazione (test). Senza docling.url passa automaticamente a dummy.",
       "root": "Cartella radice",
       "rootHint": "Percorso del volume di storage (nel container). Il cambio riavvia il watcher.",
       "rootPlaceholder": "es. /app/storage",

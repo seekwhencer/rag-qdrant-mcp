@@ -311,6 +311,7 @@ describe('Config storage group', () => {
             const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
             expect(written.storage).toEqual({
                 enabled: true,
+                processor: 'docling',
                 root: './storage',
                 concurrency: 1,
                 dummyDelaySec: 2,
@@ -435,6 +436,26 @@ describe('Config storage group', () => {
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }
+    });
+
+    it('uses storage.processor default docling', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        expect(config.storage.processor).toBe('docling');
+    });
+
+    it('lets STORAGE_PROCESSOR override storage.processor and locks it in the UI', () => {
+        const config = new Config({ CONFIG_PATH: missingPath(), STORAGE_PROCESSOR: 'dummy' });
+        expect(config.storage.processor).toBe('dummy');
+        expect(config.getSettings().envLocked.storage.processor).toBe('STORAGE_PROCESSOR');
+    });
+
+    it('validateSettings rejects an invalid storage.processor', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, storage: { ...base.storage, processor: 'bogus' } })
+            .some((e) => e.includes('storage.processor'))).toBe(true);
+        expect(config.validateSettings({ ...base, storage: { ...base.storage, processor: 42 } })
+            .some((e) => e.includes('storage.processor'))).toBe(true);
     });
 });
 
@@ -695,7 +716,16 @@ describe('Config docling group', () => {
             const config = new Config({ CONFIG_PATH: cfgPath });
             config.saveDefaults();
             const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
-            expect(written.docling).toEqual({ url: '', apiKey: '', statusPollIntervalSec: 30 });
+            expect(written.docling).toEqual({
+                url: '',
+                apiKey: '',
+                statusPollIntervalSec: 30,
+                timeoutSec: 300,
+                maxTokens: 512,
+                useMarkdownTables: true,
+                useMarkdownImages: false,
+                ocr: true
+            });
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }
@@ -818,5 +848,62 @@ describe('Config docling group', () => {
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }
+    });
+
+    it('uses docling chunking defaults', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        expect(config.docling.timeoutSec).toBe(300);
+        expect(config.docling.maxTokens).toBe(512);
+        expect(config.docling.useMarkdownTables).toBe(true);
+        expect(config.docling.useMarkdownImages).toBe(false);
+        expect(config.docling.ocr).toBe(true);
+    });
+
+    it('lets env vars override the new docling fields and locks them in the UI', () => {
+        const config = new Config({
+            CONFIG_PATH: missingPath(),
+            DOCLING_TIMEOUT_SEC: '600',
+            DOCLING_MAX_TOKENS: '256',
+            DOCLING_USE_MARKDOWN_TABLES: 'false',
+            DOCLING_USE_MARKDOWN_IMAGES: 'true',
+            DOCLING_OCR: 'false'
+        });
+        expect(config.docling.timeoutSec).toBe(600);
+        expect(config.docling.maxTokens).toBe(256);
+        expect(config.docling.useMarkdownTables).toBe(false);
+        expect(config.docling.useMarkdownImages).toBe(true);
+        expect(config.docling.ocr).toBe(false);
+        expect(config.getSettings().envLocked.docling.timeoutSec).toBe('DOCLING_TIMEOUT_SEC');
+        expect(config.getSettings().envLocked.docling.maxTokens).toBe('DOCLING_MAX_TOKENS');
+        expect(config.getSettings().envLocked.docling.useMarkdownTables).toBe('DOCLING_USE_MARKDOWN_TABLES');
+        expect(config.getSettings().envLocked.docling.useMarkdownImages).toBe('DOCLING_USE_MARKDOWN_IMAGES');
+        expect(config.getSettings().envLocked.docling.ocr).toBe('DOCLING_OCR');
+    });
+
+    it('validateSettings rejects an invalid docling.timeoutSec', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, docling: { ...base.docling, timeoutSec: 0 } })
+            .some((e) => e.includes('docling.timeoutSec'))).toBe(true);
+        expect(config.validateSettings({ ...base, docling: { ...base.docling, timeoutSec: 2.5 } })
+            .some((e) => e.includes('docling.timeoutSec'))).toBe(true);
+    });
+
+    it('validateSettings rejects a negative docling.maxTokens', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, docling: { ...base.docling, maxTokens: -1 } })
+            .some((e) => e.includes('docling.maxTokens'))).toBe(true);
+    });
+
+    it('validateSettings rejects non-boolean docling markdown/ocr flags', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, docling: { ...base.docling, useMarkdownTables: 'yes' } })
+            .some((e) => e.includes('docling.useMarkdownTables'))).toBe(true);
+        expect(config.validateSettings({ ...base, docling: { ...base.docling, useMarkdownImages: 1 } })
+            .some((e) => e.includes('docling.useMarkdownImages'))).toBe(true);
+        expect(config.validateSettings({ ...base, docling: { ...base.docling, ocr: 'true' } })
+            .some((e) => e.includes('docling.ocr'))).toBe(true);
     });
 });

@@ -20,7 +20,7 @@ const STATUS_ENDPOINTS = [
 const REQUEST_TIMEOUT_MS = 5000;
 
 /**
- * Dockling service (docling-serve integration).
+ * Docling service (docling-serve integration).
  *
  * Pollt im Intervall `config.docling.statusPollIntervalSec` die Status-Endpunkte
  * (Health, Readiness, Capabilities, Version, Memory-Stats, Memory-Counts),
@@ -34,7 +34,7 @@ const REQUEST_TIMEOUT_MS = 5000;
  *
  * Erbt von EventEmitter: `status`-Event mit dem aggregierten Status-Objekt.
  */
-class DocklingService extends EventEmitter {
+class DoclingService extends EventEmitter {
     /**
      * @param {object} [params] - Configuration parameters
      * @param {Config} [params.config] - Config-Instanz (docling-Gruppe + change-Events)
@@ -42,7 +42,7 @@ class DocklingService extends EventEmitter {
      */
     constructor({ config, logger } = {}) {
         super();
-        this.label = '[DocklingService]';
+        this.label = '[DoclingService]';
         this.logger = logger || noopLogger();
         this.config = config || null;
         this.timer = null;
@@ -188,4 +188,4 @@ class DocklingService extends EventEmitter {
     }
 }
 
-export { DocklingService, STATUS_ENDPOINTS };
+export { DoclingService, STATUS_ENDPOINTS };

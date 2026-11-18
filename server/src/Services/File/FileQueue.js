@@ -179,6 +179,10 @@ class FileQueue extends EventEmitter {
             this.finishJob(job, 'cancelled', err.message || 'aborted');
             return;
         }
+        if (err?.noRetry) {
+            this.finishJob(job, 'error', err.message);
+            return;
+        }
         const maxRetries = this.config.storage.maxRetries;
         if (job.retries < maxRetries) {
             job.retries++;
