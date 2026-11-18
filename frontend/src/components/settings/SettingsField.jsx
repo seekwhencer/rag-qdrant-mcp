@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import EnvLockBadge from './EnvLockBadge.jsx';
 import Toggle from '../ui/Toggle.jsx';
+import SettingsListField from './SettingsListField.jsx';
 
 /**
  * Rendert ein einzelnes Settings-Feld (text/number/checkbox/textarea/select/list/password).
@@ -92,20 +93,7 @@ export default function SettingsField({ field, value, onChange, locked }) {
   }
 
   if (field.type === 'list') {
-    const display = Array.isArray(value) ? value.join(', ') : (typeof value === 'string' ? value : '');
-    return (
-      <label className={`${baseClass} settings__field--full`}>
-        <span>{t(field.label)} {lockBadge}</span>
-        <input
-          type="text"
-          value={display}
-          placeholder={field.placeholder ? t(field.placeholder) : undefined}
-          disabled={isLocked}
-          onChange={(e) => onChange(e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
-        />
-        {hint}
-      </label>
-    );
+    return <SettingsListField field={field} value={value} onChange={onChange} locked={locked} />;
   }
 
   if (field.type === 'readonly') {

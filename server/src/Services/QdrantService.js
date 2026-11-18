@@ -252,6 +252,22 @@ class QdrantService extends EventEmitter {
     }
 
     /**
+     * Lists all collections in Qdrant with their info (name, points_count, …).
+     * Collections whose info cannot be loaded are skipped.
+     * @returns {Promise<Array<object>>} CollectionInfo objects
+     */
+    async listCollections() {
+        const { collections } = await this.client.getCollections();
+        const names = (collections || []).map((c) => c.name);
+        const infos = await Promise.all(
+            names.map((name) => this.client.getCollection(name).catch(() => null))
+        );
+        return infos
+            .map((info, i) => (info ? { ...info, name: names[i] } : null))
+            .filter(Boolean);
+    }
+
+    /**
      * Deletes all points in the collection that match the given source path.
      * @param {string} source - Source file path to match
      * @returns {Promise<void>}

@@ -44,6 +44,14 @@ class App {
                 this.logger.log(this.label, 'Vision-Config geändert → Service aktualisiert');
                 this.vision.updateConfig(this.config.vision);
             }
+            if (changed.includes('searchTopK')) {
+                this.logger.log(this.label, 'searchTopK geändert → SearchService aktualisiert');
+                this.search.updateConfig({ topK: this.config.searchTopK });
+            }
+            if (changed.includes('chat')) {
+                this.logger.log(this.label, 'Chat-Config geändert → SearchService aktualisiert');
+                this.search.updateConfig({ systemPrompt: this.config.chat.systemPrompt });
+            }
         };
         this.config.on('change', this._onConfigChange);
 

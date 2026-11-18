@@ -94,7 +94,11 @@ class DoclingProcessor extends FileProcessor {
         for (const chunk of chunks) {
             if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
             const vector = await this.embeddings.embed(chunk.text);
-            await this.qdrant.upsert(vector, { text: chunk.text, path: job.path, source: job.path });
+            await this.qdrant.upsert(vector, {
+                text: chunk.text,
+                path: job.path,
+                source: job.path
+            });
         }
 
         const entry = await this.store.upsert(job.path, {

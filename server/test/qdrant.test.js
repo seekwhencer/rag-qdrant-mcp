@@ -7,7 +7,9 @@ const clientMock = vi.hoisted(() => ({
     query: vi.fn(),
     delete: vi.fn(),
     collectionExists: vi.fn(),
-    createCollection: vi.fn()
+    createCollection: vi.fn(),
+    getCollections: vi.fn(),
+    getCollection: vi.fn()
 }));
 
 vi.mock('@qdrant/js-client-rest', () => ({
@@ -24,6 +26,8 @@ describe('Qdrant', () => {
         clientMock.delete.mockReset().mockResolvedValue(undefined);
         clientMock.collectionExists.mockReset().mockResolvedValue({ result: true });
         clientMock.createCollection.mockReset().mockResolvedValue(undefined);
+        clientMock.getCollections.mockReset().mockResolvedValue({ collections: [] });
+        clientMock.getCollection.mockReset().mockResolvedValue({});
     });
 
     it('upsert sends a deterministic id and a full payload', async () => {
@@ -73,6 +77,29 @@ describe('Qdrant', () => {
         clientMock.query.mockRejectedValue({ status: 404 });
         const q = new QdrantService({ url: 'http://q', collection: 'c' });
         expect(await q.search([0.1])).toEqual([]);
+    });
+
+    it('listCollections returns enriched collection infos', async () => {
+        clientMock.getCollections.mockResolvedValue({ collections: [{ name: 'research' }] });
+        clientMock.getCollection.mockResolvedValue({ points_count: 42 });
+        const q = new QdrantService({ url: 'http://q', collection: 'c' });
+        expect(await q.listCollections()).toEqual([{ name: 'research', points_count: 42 }]);
+        expect(clientMock.getCollection).toHaveBeenCalledWith('research');
+    });
+
+    it('listCollections returns an empty array when no collections exist', async () => {
+        clientMock.getCollections.mockResolvedValue({});
+        const q = new QdrantService({ url: 'http://q', collection: 'c' });
+        expect(await q.listCollections()).toEqual([]);
+    });
+
+    it('listCollections skips collections whose info fails', async () => {
+        clientMock.getCollections.mockResolvedValue({ collections: [{ name: 'a' }, { name: 'b' }] });
+        clientMock.getCollection
+            .mockResolvedValueOnce({ name: 'a', points_count: 1 })
+            .mockRejectedValueOnce(new Error('boom'));
+        const q = new QdrantService({ url: 'http://q', collection: 'c' });
+        expect(await q.listCollections()).toEqual([{ name: 'a', points_count: 1 }]);
     });
 
     it('deleteBySource deletes points filtered by source', async () => {

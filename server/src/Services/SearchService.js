@@ -61,6 +61,15 @@ class SearchService {
     }
 
     /**
+     * Aktualisiert die Runtime-Konfiguration (z. B. nach einer Settings-Änderung).
+     * @param {object} cfg - { topK, systemPrompt }
+     */
+    updateConfig(cfg = {}) {
+        if (cfg.topK !== undefined) this.topK = cfg.topK;
+        if (cfg.systemPrompt !== undefined) this.systemPrompt = cfg.systemPrompt;
+    }
+
+    /**
      * Generates an embedding vector for the question, searches in Qdrant, and has the LLM generate an answer.
      * @param {string} question - The search query
      * @returns {Promise<string|undefined>} The generated answer or undefined

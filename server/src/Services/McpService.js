@@ -86,6 +86,45 @@ class McpService {
             }
         );
 
+        this.mcpServer.registerTool(
+            'get_collections',
+            {
+                description: 'Listet alle Qdrant-Collections mit Name, Punktanzahl und Vektor-Konfiguration.',
+                inputSchema: z.object({})
+            },
+            async () => {
+                try {
+                    const collections = await this.search.qdrant.listCollections();
+                    if (collections.length === 0) {
+                        return {
+                            content: [{ type: 'text', text: 'Keine Collections gefunden. Qdrant ist leer.' }],
+                            isError: false
+                        };
+                    }
+                    const rows = collections.map((c) => {
+                        const v = c.config?.params?.vectors;
+                        let distance;
+                        if (v && typeof v === 'object') {
+                            distance = v.distance !== undefined
+                                ? v.distance
+                                : Object.values(v)[0]?.distance;
+                        }
+                        return {
+                            name: c.name,
+                            points: c.points_count,
+                            distance
+                        };
+                    });
+                    return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] };
+                } catch (err) {
+                    return {
+                        content: [{ type: 'text', text: `Collections konnten nicht geladen werden: ${err?.message || err}` }],
+                        isError: true
+                    };
+                }
+            }
+        );
+
         return this.mcpServer;
     }
 }
