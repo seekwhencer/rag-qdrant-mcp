@@ -360,4 +360,48 @@ describe('FileQueue', () => {
         const queue = new FileQueue({ config: baseConfig, processor });
         expect(() => queue.enqueue('a.txt', 'rename')).toThrow('invalid event');
     });
+
+    it('listPrioritized: processing > done > pending, jeweils neueste zuerst', async () => {
+        let releaseB;
+        const gateB = new Promise((r) => (releaseB = r));
+        const processor = {
+            async process(job) {
+                if (job.path === 'b.txt') await gateB;
+                return { ok: true };
+            }
+        };
+        const queue = new FileQueue({ config: baseConfig, processor });
+
+        queue.enqueue('a.txt', 'create'); // completes instantly → done
+        queue.enqueue('b.txt', 'create'); // delayed → processing
+        queue.enqueue('c.txt', 'create'); // pending
+        queue.enqueue('d.txt', 'create'); // pending
+        await flush();
+
+        const byPath = Object.fromEntries(queue.list().map((j) => [j.path, j.status]));
+        expect(byPath).toEqual({ 'a.txt': 'done', 'b.txt': 'processing', 'c.txt': 'pending', 'd.txt': 'pending' });
+
+        // processing zuerst, dann done, dann pending (neueste zuerst)
+        expect(queue.listPrioritized(10).map((j) => j.path)).toEqual(['b.txt', 'a.txt', 'd.txt', 'c.txt']);
+    });
+
+    it('listPrioritized: Cap begrenzt die Liste, processing/done bleiben sichtbar', async () => {
+        const processor = makeProcessor();
+        const queue = new FileQueue({ config: baseConfig, processor });
+        queue.pause();
+
+        // 5 pending + 1 done (manuell via Status-Setzen simuliert)
+        queue.enqueue('p1.txt', 'create');
+        queue.enqueue('p2.txt', 'create');
+        queue.enqueue('p3.txt', 'create');
+        queue.enqueue('p4.txt', 'create');
+        queue.enqueue('p5.txt', 'create');
+        const doneJob = queue.enqueue('done.txt', 'create');
+        doneJob.status = 'done';
+
+        // Cap=2: processing(0) + done(1) + pending(1) → done + neuestes pending
+        const result = queue.listPrioritized(2);
+        expect(result.map((j) => j.path)).toEqual(['done.txt', 'p5.txt']);
+        expect(result.map((j) => j.status)).toEqual(['done', 'pending']);
+    });
 });

@@ -13,7 +13,7 @@ vi.mock('@modelcontextprotocol/server', () => ({
 import { McpService } from '../src/Services/McpService.js';
 
 const makeService = () => new McpService({
-    search: { qdrant: { listCollections: vi.fn() } },
+    search: { qdrant: { listCollections: vi.fn() }, searchAndReturnChunks: vi.fn().mockResolvedValue([]) },
     logger: { log: () => {}, error: () => {} }
 });
 
@@ -22,6 +22,32 @@ describe('McpService', () => {
         const svc = makeService();
         svc.createServer();
         expect(Object.keys(registered).sort()).toEqual(['ask', 'get_collections', 'search']);
+    });
+
+    it('search tool passes optional source/heading/page to searchAndReturnChunks', async () => {
+        const svc = makeService();
+        svc.search.searchAndReturnChunks.mockResolvedValue([
+            { text: 't', score: 0.9, metadata: { path: 'a.md' } }
+        ]);
+        svc.createServer();
+
+        const res = await registered.search.handler({ question: 'q', source: 'a.md', heading: 'H1', page: 3 });
+
+        expect(svc.search.searchAndReturnChunks).toHaveBeenCalledWith('q', { source: 'a.md', heading: 'H1', page: 3 });
+        expect(res.isError).toBeUndefined();
+        expect(JSON.parse(res.content[0].text)[0].text).toBe('t');
+    });
+
+    it('search tool calls searchAndReturnChunks with empty options when no filters given', async () => {
+        const svc = makeService();
+        svc.search.searchAndReturnChunks.mockResolvedValue([]);
+        svc.createServer();
+
+        const res = await registered.search.handler({ question: 'q' });
+
+        expect(svc.search.searchAndReturnChunks).toHaveBeenCalledWith('q', {});
+        expect(res.isError).toBe(false);
+        expect(res.content[0].text).toContain('Keine Ergebnisse');
     });
 
     it('get_collections returns formatted collection rows', async () => {

@@ -78,6 +78,7 @@ class SearchRouter {
                     else if (ev.type === 'thinking') ok = send('thinking', ev.token);
                     else if (ev.type === 'answer') ok = send('answer', ev.token);
                     else if (ev.type === 'empty') ok = send('empty', {});
+                    else if (ev.type === 'citations') ok = send('citations', { text: ev.text });
                     else if (ev.type === 'done') ok = send('done', {});
                     else ok = true;
                     if (ok === false) break;

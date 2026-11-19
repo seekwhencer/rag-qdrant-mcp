@@ -4,17 +4,21 @@ const RECONNECT_MS = 2000;
 
 /**
  * WebSocket-Client für die Datei-Verwaltung (/files).
- * Liefert: data (Snapshot: Stats + Queue + Files), connected, error.
+ * Liefert: data (Snapshot: Stats + Queue + Files), progressLogs (jobId → [{ts, line}]),
+ * connected, error.
  *
  * Kein Pollen: der Server pusht einen Snapshot auf Connect und danach
  * Updates, wenn sich etwas ändert (Queue, Files, Stats).
+ * Progress-Zeilen kommen als separate {type:'progress'}-Messages (echtes Realtime).
  *
  * Protokoll:
  *   { type: 'snapshot', data: snapshot } — einmalig auf Connect
  *   { type: 'update',   data: snapshot } — bei jeder Änderung
+ *   { type: 'progress', jobId, line, ts } — pro Progress-Zeile (Realtime)
  */
 export function useFilesStream({ enabled = true } = {}) {
   const [data, setData] = useState(null);
+  const [progressLogs, setProgressLogs] = useState({});
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState(null);
   const wsRef = useRef(null);
@@ -39,6 +43,19 @@ export function useFilesStream({ enabled = true } = {}) {
           const msg = JSON.parse(event.data);
           if (msg.type === 'snapshot' || msg.type === 'update') {
             setData(msg.data);
+            // Puffer aus dem Snapshot initialisieren (History für neue Clients).
+            // Der Snapshot ist die Quelle der Wahrheit → Puffer wird synchronisiert.
+            const logs = {};
+            for (const job of msg.data?.queue || []) {
+              if (job.progressLog && job.progressLog.length > 0) logs[job.id] = job.progressLog;
+            }
+            setProgressLogs(logs);
+          } else if (msg.type === 'progress') {
+            // Neue Progress-Zeile anhängen (Realtime, sofort sichtbar).
+            setProgressLogs((prev) => ({
+              ...prev,
+              [msg.jobId]: [...(prev[msg.jobId] || []), { ts: msg.ts, line: msg.line }]
+            }));
           }
         } catch { /* malformed → ignorieren */ }
       };
@@ -60,5 +77,5 @@ export function useFilesStream({ enabled = true } = {}) {
     };
   }, [enabled]);
 
-  return { data, connected, error };
+  return { data, progressLogs, connected, error };
 }

@@ -73,6 +73,7 @@ class FileService {
         this.listeners = new Set(); // (payload: string) => void
         this.lastSnapshot = null;
         this._queueHandler = null;
+        this._progressHandler = null;
         this._configHandler = null;
         this._broadcastTimer = null;
         this._started = false;
@@ -146,6 +147,10 @@ class FileService {
 
         this._queueHandler = ({ type, job }) => this.onQueueChange(type, job);
         this.queue.on('change', this._queueHandler);
+
+        // Progress-Zeilen: sofort broadcasten (kein Debounce) → echtes Realtime-Log.
+        this._progressHandler = ({ jobId, line, ts }) => this.broadcastProgress({ jobId, line, ts });
+        this.queue.on('progress', this._progressHandler);
 
         if (this.config.storage.enabled) {
             this.startWatcher();
@@ -238,6 +243,10 @@ class FileService {
             this.queue.removeListener('change', this._queueHandler);
             this._queueHandler = null;
         }
+        if (this._progressHandler) {
+            this.queue.removeListener('progress', this._progressHandler);
+            this._progressHandler = null;
+        }
         this.stopWatcher();
         this.queue.stop();
         if (this._broadcastTimer) {
@@ -285,7 +294,7 @@ class FileService {
                 cancelled: stats.cancelled,
                 files: files.length
             },
-            queue: this.queue.list().slice(0, 200),
+            queue: this.queue.listPrioritized(200),
             files
         };
         this.lastSnapshot = snap;
@@ -326,6 +335,16 @@ class FileService {
      */
     broadcast(snap) {
         const payload = JSON.stringify({ type: 'update', data: snap });
+        broadcastToListeners(this.listeners, payload, { logger: this.logger, label: this.label });
+    }
+
+    /**
+     * Progress-Zeile sofort an alle Listener broadcasten (kein Debounce).
+     * Protokoll: { type: 'progress', jobId, line, ts }
+     * @param {{jobId: string, line: string, ts: string}} p
+     */
+    broadcastProgress({ jobId, line, ts }) {
+        const payload = JSON.stringify({ type: 'progress', jobId, line, ts });
         broadcastToListeners(this.listeners, payload, { logger: this.logger, label: this.label });
     }
 

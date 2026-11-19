@@ -15,7 +15,7 @@ const STAT_KEYS = [
 
 export default function FilesPage() {
   const { t } = useTranslation();
-  const { data, connected, error } = useFilesStream();
+  const { data, progressLogs, connected, error } = useFilesStream();
 
   const stats = data?.stats;
 
@@ -58,7 +58,7 @@ export default function FilesPage() {
                 <h2>{t('files.queue.title')}</h2>
                 <QueueControls paused={Boolean(data.paused)} />
               </div>
-              <QueueTable jobs={data.queue || []} />
+              <QueueTable jobs={data.queue || []} progressLogs={progressLogs} />
             </section>
 
             <section className="files__section">

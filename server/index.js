@@ -52,6 +52,14 @@ class App {
                 this.logger.log(this.label, 'Chat-Config geändert → SearchService aktualisiert');
                 this.search.updateConfig({ systemPrompt: this.config.chat.systemPrompt });
             }
+            if (changed.includes('search')) {
+                this.logger.log(this.label, 'Search-Config geändert → SearchService aktualisiert');
+                this.search.updateConfig({
+                    rerankEnabled: this.config.search.rerankEnabled,
+                    rerankBoost: this.config.search.rerankBoost,
+                    citationEnabled: this.config.search.citationEnabled
+                });
+            }
         };
         this.config.on('change', this._onConfigChange);
 
@@ -76,6 +84,9 @@ class App {
             chat: this.chat,
             systemPrompt: config.chat.systemPrompt,
             topK: config.searchTopK,
+            rerankEnabled: config.search.rerankEnabled,
+            rerankBoost: config.search.rerankBoost,
+            citationEnabled: config.search.citationEnabled,
             logger: this.logger
         });
 

@@ -907,3 +907,126 @@ describe('Config docling group', () => {
             .some((e) => e.includes('docling.ocr'))).toBe(true);
     });
 });
+
+describe('Config search group', () => {
+    it('uses search defaults when no config.json and no env overrides are present', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        expect(config.search.rerankEnabled).toBe(true);
+        expect(config.search.rerankBoost).toBe(0.05);
+        expect(config.search.citationEnabled).toBe(true);
+    });
+
+    it('lets env vars override search values and locks them in the UI', () => {
+        const config = new Config({
+            CONFIG_PATH: missingPath(),
+            SEARCH_RERANK_ENABLED: 'false',
+            SEARCH_RERANK_BOOST: '0.2',
+            SEARCH_CITATION_ENABLED: 'false'
+        });
+        expect(config.search.rerankEnabled).toBe(false);
+        expect(config.search.rerankBoost).toBe(0.2);
+        expect(config.search.citationEnabled).toBe(false);
+        expect(config.getSettings().envLocked.search.rerankEnabled).toBe('SEARCH_RERANK_ENABLED');
+        expect(config.getSettings().envLocked.search.rerankBoost).toBe('SEARCH_RERANK_BOOST');
+        expect(config.getSettings().envLocked.search.citationEnabled).toBe('SEARCH_CITATION_ENABLED');
+    });
+
+    it('reads search values from a config.json file', () => {
+        const { dir, cfgPath } = withTempConfig({
+            search: { rerankEnabled: false, rerankBoost: 0.1, citationEnabled: false }
+        });
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            expect(config.search.rerankEnabled).toBe(false);
+            expect(config.search.rerankBoost).toBe(0.1);
+            expect(config.search.citationEnabled).toBe(false);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('saveDefaults writes the search group', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            config.saveDefaults();
+            const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            expect(written.search).toEqual({ rerankEnabled: true, rerankBoost: 0.05, citationEnabled: true });
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('getSettings includes search and envLocked.search', () => {
+        const config = new Config({ CONFIG_PATH: missingPath(), SEARCH_RERANK_BOOST: '0.3' });
+        const settings = config.getSettings();
+        expect(settings.search.rerankBoost).toBe(0.3);
+        expect(settings.envLocked.search.rerankBoost).toBe('SEARCH_RERANK_BOOST');
+    });
+
+    it('validateSettings accepts valid search settings', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const errors = config.validateSettings(config.getSettings());
+        expect(errors).toEqual([]);
+    });
+
+    it('validateSettings rejects a negative search.rerankBoost', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, search: { ...base.search, rerankBoost: -1 } })
+            .some((e) => e.includes('search.rerankBoost'))).toBe(true);
+    });
+
+    it('validateSettings rejects non-boolean search flags', () => {
+        const config = new Config({ CONFIG_PATH: missingPath() });
+        const base = config.getSettings();
+        expect(config.validateSettings({ ...base, search: { ...base.search, rerankEnabled: 'yes' } })
+            .some((e) => e.includes('search.rerankEnabled'))).toBe(true);
+        expect(config.validateSettings({ ...base, search: { ...base.search, citationEnabled: 1 } })
+            .some((e) => e.includes('search.citationEnabled'))).toBe(true);
+    });
+
+    it('updateSettings applies a valid search patch, persists it and fires a change event', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            let event = null;
+            config.on('change', (e) => { event = e; });
+            const result = config.updateSettings({ search: { rerankEnabled: false, rerankBoost: 0.1 } });
+            expect(result.applied).toContain('search');
+            expect(config.search.rerankEnabled).toBe(false);
+            expect(config.search.rerankBoost).toBe(0.1);
+            expect(config.search.citationEnabled).toBe(true);
+            expect(event).not.toBeNull();
+            expect(event.changed).toContain('search');
+            const written = JSON.parse(readFileSync(cfgPath, 'utf8'));
+            expect(written.search.rerankEnabled).toBe(false);
+            expect(written.search.rerankBoost).toBe(0.1);
+            expect(written.search.citationEnabled).toBe(true);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('updateSettings rejects an invalid search patch', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath });
+            expect(() => config.updateSettings({ search: { rerankBoost: -1 } })).toThrow();
+            expect(config.search.rerankBoost).toBe(0.05);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('updateSettings ignores env-locked search keys', () => {
+        const { dir, cfgPath } = withTempConfig();
+        try {
+            const config = new Config({ CONFIG_PATH: cfgPath, SEARCH_RERANK_ENABLED: 'false' });
+            config.updateSettings({ search: { rerankEnabled: true } });
+            expect(config.search.rerankEnabled).toBe(false);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});

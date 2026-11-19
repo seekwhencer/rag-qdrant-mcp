@@ -34,7 +34,7 @@ export default function App() {
   return (
     <>
       <header className="topbar">
-        <Link to="/about" className="topbar__brand">rag-qdrant-mcp</Link>
+        <Link to="/about" className="topbar__brand">RAG MCP</Link>
         <TopNav />
         <div className="topbar__actions">
           <ThemeToggle />

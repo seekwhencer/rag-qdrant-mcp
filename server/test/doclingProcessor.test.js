@@ -79,7 +79,10 @@ describe('DoclingProcessor', () => {
     it('create: Happy Path (chunk → embed → upsert, Store done + chunkCount)', async () => {
         const { dir, config, store, embeddings, qdrant } = makeEnv();
         writeFileSync(join(dir, 'a.pdf'), 'pdf-content');
-        axiosMock.post.mockResolvedValue({ data: { chunks: [{ text: 'chunk1' }, { text: 'chunk2' }] } });
+        axiosMock.post.mockResolvedValue({ data: { chunks: [
+            { text: 'chunk1', headings: ['H1'], page_numbers: [1], chunk_index: 0, captions: [] },
+            { text: 'chunk2', headings: ['H2'], page_numbers: [2], chunk_index: 1, captions: ['c'] }
+        ] } });
 
         const processor = new DoclingProcessor({ config, store, embeddings, qdrant });
         const result = await processor.process(makeJob('a.pdf', 'create'));
@@ -90,8 +93,17 @@ describe('DoclingProcessor', () => {
         expect(url).toBe('http://docling:5001/v1/chunk/hybrid/file');
         expect(cfg.headers['X-Api-Key']).toBe('dk-test');
         expect(embeddings.embed).toHaveBeenCalledTimes(2);
+        expect(embeddings.embed).toHaveBeenNthCalledWith(1, 'chunk1');
+        expect(embeddings.embed).toHaveBeenNthCalledWith(2, 'chunk2');
         expect(qdrant.upsert).toHaveBeenCalledTimes(2);
-        expect(qdrant.upsert).toHaveBeenCalledWith([0.1, 0.2], { text: 'chunk1', path: 'a.pdf', source: 'a.pdf' });
+        expect(qdrant.upsert).toHaveBeenNthCalledWith(1, [0.1, 0.2], {
+            text: 'chunk1', path: 'a.pdf', source: 'a.pdf',
+            headings: ['H1'], page_numbers: [1], chunk_index: 0, captions: []
+        });
+        expect(qdrant.upsert).toHaveBeenNthCalledWith(2, [0.1, 0.2], {
+            text: 'chunk2', path: 'a.pdf', source: 'a.pdf',
+            headings: ['H2'], page_numbers: [2], chunk_index: 1, captions: ['c']
+        });
         const entry = await store.get('a.pdf');
         expect(entry.status).toBe('done');
         expect(entry.chunkCount).toBe(2);

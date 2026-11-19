@@ -125,6 +125,15 @@ const DOCLING_PARAMS = {
 };
 
 /**
+ * Search-Parameter (Rerank + Zitat, config-driven).
+ */
+const SEARCH_PARAMS = {
+    rerankEnabled: { env: 'SEARCH_RERANK_ENABLED', type: 'boolean', default: true },
+    rerankBoost: { env: 'SEARCH_RERANK_BOOST', type: 'number', default: 0.05 },
+    citationEnabled: { env: 'SEARCH_CITATION_ENABLED', type: 'boolean', default: true },
+};
+
+/**
  * Loads and manages server configuration from environment variables and a config.json file.
  *
  * Erbt von EventEmitter: `updateSettings()` feuert ein `change`-Event
@@ -141,7 +150,7 @@ class Config extends EventEmitter {
     };
 
     /** Keys, die ohne Neustart wirksam werden. */
-    static runtimeKeys = ['verbose', 'searchTopK', 'dataDir', 'qdrant', 'embeddings', 'chat', 'vision', 'mcp', 'storage', 'docling'];
+    static runtimeKeys = ['verbose', 'searchTopK', 'dataDir', 'qdrant', 'embeddings', 'chat', 'vision', 'mcp', 'storage', 'docling', 'search'];
 
     /** Keys, die einen Neustart erfordern. */
     static restartKeys = ['serverPort'];
@@ -162,7 +171,7 @@ class Config extends EventEmitter {
 
         // Env-gelockte Felder: key → Name der Umgebungsvariable.
         // Diese Werte sind in der UI nicht änderbar (Env hat immer Vorrang).
-        this.envLocked = { root: {}, qdrant: {}, embeddings: {}, chat: {}, vision: {}, mcp: {}, storage: {}, db: {}, docling: {} };
+        this.envLocked = { root: {}, qdrant: {}, embeddings: {}, chat: {}, vision: {}, mcp: {}, storage: {}, db: {}, docling: {}, search: {} };
         if (parseInt(env.SERVER_PORT, 10)) this.envLocked.root.serverPort = 'SERVER_PORT';
         if (env.VERBOSE === 'true') this.envLocked.root.verbose = 'VERBOSE';
         if (parseInt(env.SEARCH_TOP_K, 10)) this.envLocked.root.searchTopK = 'SEARCH_TOP_K';
@@ -177,6 +186,7 @@ class Config extends EventEmitter {
         this.storage = this.resolveParams(STORAGE_PARAMS, loaded?.storage, 'storage');
         this.db = this.resolveParams(DB_PARAMS, loaded?.db, 'db');
         this.docling = this.resolveParams(DOCLING_PARAMS, loaded?.docling, 'docling');
+        this.search = this.resolveParams(SEARCH_PARAMS, loaded?.search, 'search');
     }
 
     /**
@@ -279,7 +289,8 @@ class Config extends EventEmitter {
             storage: Object.fromEntries(Object.entries(STORAGE_PARAMS).map(([key, spec]) => [key, spec.default])),
             // Passwort-Hygiene: `password` bleibt ein leerer Platzhalter (Secret kommt nur aus der Env).
             db: Object.fromEntries(Object.entries(DB_PARAMS).map(([key, spec]) => [key, spec.default])),
-            docling: Object.fromEntries(Object.entries(DOCLING_PARAMS).map(([key, spec]) => [key, spec.default]))
+            docling: Object.fromEntries(Object.entries(DOCLING_PARAMS).map(([key, spec]) => [key, spec.default])),
+            search: Object.fromEntries(Object.entries(SEARCH_PARAMS).map(([key, spec]) => [key, spec.default]))
         };
         writeFileSync(this.configPath, JSON.stringify(defaults, null, 4), 'utf8');
     }
@@ -306,6 +317,7 @@ class Config extends EventEmitter {
             db: { ...this.db, password: '••••••' },
             // Secret-Hygiene: `docling.apiKey` wird maskiert zurückgegeben, nie der Klartext.
             docling: { ...this.docling, apiKey: '••••••' },
+            search: { ...this.search },
             envLocked: {
                 root: { ...this.envLocked.root },
                 qdrant: { ...this.envLocked.qdrant },
@@ -315,7 +327,8 @@ class Config extends EventEmitter {
                 mcp: { ...this.envLocked.mcp },
                 storage: { ...this.envLocked.storage },
                 db: { ...this.envLocked.db },
-                docling: { ...this.envLocked.docling }
+                docling: { ...this.envLocked.docling },
+                search: { ...this.envLocked.search }
             }
         };
     }
@@ -431,6 +444,14 @@ class Config extends EventEmitter {
         if (typeof dl.ocr !== 'boolean')
             errors.push('docling.ocr muss ein Boolean sein');
 
+        const se = s.search || {};
+        if (typeof se.rerankEnabled !== 'boolean')
+            errors.push('search.rerankEnabled muss ein Boolean sein');
+        if (typeof se.rerankBoost !== 'number' || se.rerankBoost < 0)
+            errors.push('search.rerankBoost muss eine Zahl >= 0 sein');
+        if (typeof se.citationEnabled !== 'boolean')
+            errors.push('search.citationEnabled muss ein Boolean sein');
+
         return errors;
     }
 
@@ -473,6 +494,7 @@ class Config extends EventEmitter {
         p.storage = this.stripEnvLocked(patch.storage, 'storage');
         p.db = this.stripEnvLocked(patch.db, 'db');
         p.docling = this.stripEnvLocked(patch.docling, 'docling');
+        p.search = this.stripEnvLocked(patch.search, 'search');
         // Passwort-Hygiene: leerer oder maskierter Passwort-Wert = "unverändert"
         // (der echte Wert kommt ausschließlich aus der Env, nie aus der UI).
         if (p.db && (p.db.password === '' || p.db.password === '••••••')) delete p.db.password;
@@ -491,7 +513,8 @@ class Config extends EventEmitter {
             mcp: { ...current.mcp, ...(p.mcp || {}) },
             storage: { ...current.storage, ...(p.storage || {}) },
             db: { ...current.db, ...(p.db || {}) },
-            docling: { ...current.docling, ...(p.docling || {}) }
+            docling: { ...current.docling, ...(p.docling || {}) },
+            search: { ...current.search, ...(p.search || {}) }
         };
 
         const errors = this.validateSettings(next);
@@ -519,6 +542,7 @@ class Config extends EventEmitter {
         // Secret-Hygiene: der echte API-Key (aus der Env) bleibt erhalten;
         // der maskierte UI-Wert darf den Runtime-State nicht überschreiben.
         this.docling = { ...next.docling, apiKey: this.docling.apiKey };
+        this.search = { ...next.search };
 
         // Persistieren (config.json)
         this.persist();
@@ -553,7 +577,8 @@ class Config extends EventEmitter {
                     // Passwort-Hygiene: das echte Passwort (aus der Env) wird nie persistiert.
                     db: { ...this.db, password: '' },
                     // Secret-Hygiene: der echte API-Key (aus der Env) wird nie persistiert.
-                    docling: { ...this.docling, apiKey: '' }
+                    docling: { ...this.docling, apiKey: '' },
+                    search: this.search
                 },
                 null,
                 4
@@ -563,4 +588,4 @@ class Config extends EventEmitter {
     }
 }
 
-export { Config, QDRANT_PARAMS, EMBEDDINGS_PARAMS, CHAT_PARAMS, VISION_PARAMS, MCP_PARAMS, STORAGE_PARAMS, DB_PARAMS, DOCLING_PARAMS };
+export { Config, QDRANT_PARAMS, EMBEDDINGS_PARAMS, CHAT_PARAMS, VISION_PARAMS, MCP_PARAMS, STORAGE_PARAMS, DB_PARAMS, DOCLING_PARAMS, SEARCH_PARAMS };

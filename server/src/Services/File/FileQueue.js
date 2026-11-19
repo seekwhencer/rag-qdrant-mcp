@@ -28,11 +28,12 @@ class FileQueue extends EventEmitter {
     /**
      * @param {object} params
      * @param {object} params.config - Config-Objekt mit `.storage`-Gruppe
-     * @param {object} params.processor - Strategie: `{ async process(job, signal) → result }`
+     * @param {object} params.processor - Strategie: `{ async process(job, signal, progress) → result }`
      * @param {Logger} [params.logger]
      * @param {number} [params.maxQueueSize=10000] - Queue-Cap
+     * @param {number} [params.maxProgressLines=200] - Cap für Progress-Zeilen pro Job
      */
-    constructor({ config, processor, logger, maxQueueSize = 10000 } = {}) {
+    constructor({ config, processor, logger, maxQueueSize = 10000, maxProgressLines = 200 } = {}) {
         super();
         if (!config || !config.storage) {
             throw new Error('FileQueue requires a config with a storage group');
@@ -45,6 +46,7 @@ class FileQueue extends EventEmitter {
         this.config = config;
         this.processor = processor;
         this.maxQueueSize = maxQueueSize;
+        this.maxProgressLines = maxProgressLines;
 
         /** @type {Map<string, object>} id → Job */
         this.jobs = new Map();
@@ -136,7 +138,7 @@ class FileQueue extends EventEmitter {
         this.activeControllers.set(job.id, controller);
         this.emitChange('start', job);
         Promise.resolve()
-            .then(() => this.processor.process(job, controller.signal))
+            .then(() => this.processor.process(job, controller.signal, (line) => this.emitProgress(job, line)))
             .then((result) => {
                 job.result = result;
                 this.finishJob(job, 'done');
@@ -337,6 +339,26 @@ class FileQueue extends EventEmitter {
     }
 
     /**
+     * Queue-Liste für den Snapshot: priorisiert nicht-pending Jobs
+     * (processing > done/error/cancelled > pending), jeweils neueste zuerst.
+     * Cap: max. `limit` Jobs.
+     *
+     * Hintergrund: Die Queue verarbeitet FIFO (älteste zuerst) → die
+     * processing/done-Jobs sind die ältesten. Eine naive "neueste zuerst"-Cap
+     * würde genau diese Jobs abschneiden, sobald > limit pending-Jobs existieren
+     * (dann sieht das Dashboard nur pending-Jobs, kein processing/done).
+     * @param {number} limit
+     * @returns {object[]}
+     */
+    listPrioritized(limit) {
+        const all = [...this.order].reverse().map((id) => this.jobs.get(id)).filter(Boolean);
+        const processing = all.filter((j) => j.status === 'processing');
+        const finished = all.filter((j) => j.status === 'done' || j.status === 'error' || j.status === 'cancelled');
+        const pending = all.filter((j) => j.status === 'pending');
+        return [...processing, ...finished, ...pending].slice(0, limit);
+    }
+
+    /**
      * Job nach ID (oder null).
      * @param {string} id
      * @returns {object|null}
@@ -375,7 +397,8 @@ class FileQueue extends EventEmitter {
             retries: 0,
             retryAt: null,
             error: null,
-            result: null
+            result: null,
+            progressLog: []
         };
     }
 
@@ -386,6 +409,21 @@ class FileQueue extends EventEmitter {
      */
     emitChange(type, job) {
         this.emit('change', { type, job });
+    }
+
+    /**
+     * Hängt eine Progress-Zeile an den Job an (Cap: maxProgressLines) und
+     * emittiert ein 'progress'-Event → FileService broadcastet es sofort.
+     * @param {object} job
+     * @param {string} line
+     */
+    emitProgress(job, line) {
+        const entry = { ts: new Date().toISOString(), line: String(line) };
+        job.progressLog.push(entry);
+        if (job.progressLog.length > this.maxProgressLines) {
+            job.progressLog.splice(0, job.progressLog.length - this.maxProgressLines);
+        }
+        this.emit('progress', { jobId: job.id, line: entry.line, ts: entry.ts });
     }
 }
 

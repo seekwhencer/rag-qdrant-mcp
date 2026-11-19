@@ -6,9 +6,10 @@ import { noopLogger } from '../../Utils/logger.js';
 /**
  * Strategie-Interface für die Datei-Verarbeitung.
  *
- * - `async process(job, signal) → result`
+ * - `async process(job, signal, progress) → result`
  * - job: `{ id, path, event: 'create'|'modify'|'delete', ... }` (Pfad relativ zum storage-Root)
  * - signal: AbortSignal (Queue-Abort bricht die Verarbeitung ab)
+ * - progress: `(line: string) => void` — emittiert eine Progress-Zeile (Live-Log im Dashboard)
  * - result: `{ status: 'done'|'skipped'|'deleted', path, event, size, entry }`
  *
  * Später: hier echte Verarbeitung einhängen (Chunking → Embeddings → Qdrant),
@@ -38,9 +39,10 @@ class FileProcessor {
      * Verarbeitet einen Job. Muss von einer Strategie implementiert werden.
      * @param {object} job
      * @param {AbortSignal} [signal]
+     * @param {(line: string) => void} [progress] — emittiert eine Progress-Zeile
      * @returns {Promise<object>}
      */
-    async process(job, signal) {
+    async process(job, signal, progress) {
         throw new Error('FileProcessor.process() must be implemented by a strategy');
     }
 
@@ -81,14 +83,26 @@ class DummyProcessor extends FileProcessor {
     /**
      * @param {object} job
      * @param {AbortSignal} [signal]
+     * @param {(line: string) => void} [progress]
      * @returns {Promise<object>}
      */
-    async process(job, signal) {
+    async process(job, signal, progress) {
         const delaySec = this.config.storage.dummyDelaySec ?? 0;
-        await waitFor(delaySec * 1000, signal);
+        // Dummy-Verarbeitung: die Wartezeit in Schritte zerlegen und pro Schritt
+        // eine Progress-Zeile emittieren (simuliert echte Verarbeitung für den Test).
+        const steps = ['Datei eingelesen', 'Chunking (docling)…', 'Embeddings berechnet…', 'Upsert in Qdrant…'];
+        progress?.(`Starte Verarbeitung (${job.event})`);
+        const stepMs = steps.length > 0 ? (delaySec * 1000) / steps.length : 0;
+        for (const step of steps) {
+            // Immer await (auch bei 0 ms): Event-Loop yielden, damit ein
+            // gleichzeitiges Löschen (ENOENT-Race) vor dem statSync erkannt wird.
+            await waitFor(stepMs, signal);
+            progress?.(step);
+        }
 
         if (job.event === 'delete') {
             const entry = await this.markDeleted(job);
+            progress?.('Tombstone gesetzt');
             this.logger.log(this.label, 'Tombstone gesetzt (delete)', { path: job.path });
             return { status: 'deleted', path: job.path, event: job.event, size: null, entry };
         }
@@ -100,6 +114,7 @@ class DummyProcessor extends FileProcessor {
             if (err.code === 'ENOENT') {
                 // Race: File während Processing gelöscht → wie delete behandeln
                 const entry = await this.markDeleted(job);
+                progress?.('File während Processing gelöscht → Tombstone');
                 this.logger.log(this.label, 'File während Processing gelöscht (ENOENT) → Tombstone', { path: job.path });
                 return { status: 'deleted', path: job.path, event: job.event, size: null, entry };
             }
@@ -115,6 +130,7 @@ class DummyProcessor extends FileProcessor {
                 status: 'skipped',
                 lastEvent: job.event
             });
+            progress?.('File übersprungen (zu groß)');
             this.logger.log(this.label, 'File übersprungen (zu groß)', {
                 path: job.path,
                 size: stats.size,
@@ -131,6 +147,7 @@ class DummyProcessor extends FileProcessor {
             lastEvent: job.event,
             processedAt: new Date().toISOString()
         });
+        progress?.('Fertig');
         this.logger.log(this.label, 'File verarbeitet (Dummy)', { path: job.path, event: job.event, size: stats.size });
         return { status: 'done', path: job.path, event: job.event, size: stats.size, entry };
     }

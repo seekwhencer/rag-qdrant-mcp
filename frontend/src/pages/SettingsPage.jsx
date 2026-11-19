@@ -10,6 +10,7 @@ import VisionSettings from '../components/settings/VisionSettings.jsx';
 import McpSettings from '../components/settings/McpSettings.jsx';
 import StorageSettings from '../components/settings/StorageSettings.jsx';
 import DatabaseSettings from '../components/settings/DatabaseSettings.jsx';
+import SearchSettings from '../components/settings/SearchSettings.jsx';
 import UiSettings from '../components/settings/UiSettings.jsx';
 
 const CATEGORIES = [
@@ -22,6 +23,7 @@ const CATEGORIES = [
   { id: 'chat', title: 'settings.categories.chat', component: ChatSettings },
   { id: 'vision', title: 'settings.categories.vision', component: VisionSettings },
   { id: 'mcp', title: 'settings.categories.mcp', component: McpSettings },
+  { id: 'search', title: 'settings.categories.search', component: SearchSettings },
   { id: 'ui', title: 'settings.categories.ui', component: UiSettings },
 ];
 

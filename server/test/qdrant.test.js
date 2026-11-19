@@ -46,8 +46,39 @@ describe('Qdrant', () => {
         expect(point.payload).toEqual({
             text: 'hello',
             path: 'a.md',
-            source: 'a.md'
+            source: 'a.md',
+            headings: [],
+            page_numbers: [],
+            chunk_index: null,
+            captions: []
         });
+    });
+
+    it('upsert stores chunk metadata in the payload', async () => {
+        const q = new QdrantService({ url: 'http://q', collection: 'research' });
+        await q.upsert([0.1], { text: 'x', source: 'x.md', headings: ['H1'], page_numbers: [3], chunk_index: 0, captions: ['c'] });
+
+        const point = clientMock.upsert.mock.calls[0][1].points[0];
+        expect(point.payload).toEqual({
+            text: 'x',
+            path: 'x.md',
+            source: 'x.md',
+            headings: ['H1'],
+            page_numbers: [3],
+            chunk_index: 0,
+            captions: ['c']
+        });
+    });
+
+    it('upsert defaults missing metadata to empty', async () => {
+        const q = new QdrantService({ url: 'http://q', collection: 'research' });
+        await q.upsert([0.1], { text: 'x', source: 'x.md' });
+
+        const point = clientMock.upsert.mock.calls[0][1].points[0];
+        expect(point.payload.headings).toEqual([]);
+        expect(point.payload.page_numbers).toEqual([]);
+        expect(point.payload.chunk_index).toBeNull();
+        expect(point.payload.captions).toEqual([]);
     });
 
     it('upsert auto-creates the collection on a not-found error, then upserts', async () => {
@@ -71,6 +102,18 @@ describe('Qdrant', () => {
         const q = new QdrantService({ url: 'http://q', collection: 'c' });
         const results = await q.search([0.1], 5);
         expect(results).toHaveLength(1);
+    });
+
+    it('search passes an optional filter to the client', async () => {
+        const q = new QdrantService({ url: 'http://q', collection: 'c' });
+        const filter = { must: [{ key: 'headings', match: { value: 'H1' } }] };
+        await q.search([0.1], 5, filter);
+        expect(clientMock.query).toHaveBeenCalledWith('c', {
+            query: [0.1],
+            limit: 5,
+            with_payload: true,
+            filter
+        });
     });
 
     it('search returns an empty array when the collection is missing', async () => {

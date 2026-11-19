@@ -122,7 +122,11 @@
       "pause": "Pause",
       "resume": "Resume",
       "abort": "Abort",
-      "remove": "Remove"
+      "remove": "Remove",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "logEmpty": "No log lines.",
+      "newLines": "{{count}} new lines"
     },
     "files": {
       "title": "Files",
@@ -191,6 +195,7 @@
       "chat": "Chat",
       "vision": "Vision",
       "mcp": "MCP",
+      "search": "Search",
       "storage": "Files",
       "database": "Database",
       "ui": "UI"
@@ -300,6 +305,15 @@
       "whitelist": "Whitelist",
       "whitelistHint": "Comma-separated glob patterns. Only matching files are considered. Empty = all files.",
       "whitelistPlaceholder": "e.g. **/*.md, **/*.txt"
+    },
+    "search": {
+      "title": "Search",
+      "rerankEnabled": "Rerank enabled",
+      "rerankEnabledHint": "Re-ranks results using chunk metadata (headings, captions).",
+      "rerankBoost": "Rerank boost factor",
+      "rerankBoostHint": "Score boost applied per matching heading/caption keyword.",
+      "citationEnabled": "Citations enabled",
+      "citationEnabledHint": "Show the source (path, page, heading) for each result."
     },
     "db": {
       "title": "Database connection",

@@ -194,10 +194,18 @@ class QdrantService extends EventEmitter {
      * Upserts a single vector point with text payload into the collection.
      * Auto-creates the collection if it does not exist.
      * @param {number[]} vector - The embedding vector
-     * @param {{text: string, source?: string}} meta - Point metadata (path alias = source)
+     * @param {{text: string, source?: string, headings?: string[], page_numbers?: number[], chunk_index?: number, captions?: string[]}} meta - Point metadata (path alias = source)
      * @returns {Promise<void>}
      */
-    async upsert(vector, { text: chunkText = '', path, source = '' } = {}) {
+    async upsert(vector, {
+        text: chunkText = '',
+        path,
+        source = '',
+        headings = [],
+        page_numbers = [],
+        chunk_index = null,
+        captions = []
+    } = {}) {
         const hex = sha256Hex(`${chunkText}\0${source}`);
         // Qdrant requires point IDs to be unsigned integers or UUIDs; a raw hex hash is neither.
         const id = hashToUuid(hex);
@@ -213,7 +221,11 @@ class QdrantService extends EventEmitter {
                     payload: {
                         text: chunkText,
                         path: payloadPath,
-                        source: String(source) || ''
+                        source: String(source) || '',
+                        headings: Array.isArray(headings) ? headings : [],
+                        page_numbers: Array.isArray(page_numbers) ? page_numbers : [],
+                        chunk_index: chunk_index ?? null,
+                        captions: Array.isArray(captions) ? captions : []
                     }
                 }
             ]
@@ -235,15 +247,14 @@ class QdrantService extends EventEmitter {
      * Searches for the most similar vectors to the query vector.
      * @param {number[]} vector - The query embedding vector
      * @param {number} [limit=3] - Maximum number of results
+     * @param {object} [filter=null] - Optional Qdrant filter object
      * @returns {Promise<Array<object>>} Array of matching points with payloads
      */
-    async search(vector, limit = 3) {
+    async search(vector, limit = 3, filter = null) {
         try {
-            const results = await this.client.query(this.collection, {
-                query: vector,
-                limit: limit,
-                with_payload: true
-            });
+            const params = { query: vector, limit, with_payload: true };
+            if (filter) params.filter = filter;
+            const results = await this.client.query(this.collection, params);
             return results?.points || [];
         } catch (err) {
             if (this.isCollectionNotFoundError(err)) return [];

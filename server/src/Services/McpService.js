@@ -71,11 +71,14 @@ class McpService {
             {
                 description: 'Durchsucht die in Qdrant indexierten Dokumente mit Vektorsuche. Gibt rohe Treffer ohne LLM zurück.',
                 inputSchema: z.object({
-                    question: z.string().describe('Die Suchanfrage')
+                    question: z.string().describe('Die Suchanfrage'),
+                    source: z.string().optional().describe('Nur Treffer aus dieser Datei (Pfad).'),
+                    heading: z.string().optional().describe('Nur Treffer mit dieser Überschrift.'),
+                    page: z.number().int().positive().optional().describe('Nur Treffer von dieser Seite.')
                 })
             },
-            async ({ question }) => {
-                const chunks = await this.search.searchAndReturnChunks(question);
+            async ({ question, source, heading, page }) => {
+                const chunks = await this.search.searchAndReturnChunks(question, { source, heading, page });
                 if (chunks.length === 0) {
                     return {
                         content: [{ type: 'text', text: 'Keine Ergebnisse gefunden. Vielleicht ist das Thema noch nicht indexiert.' }],

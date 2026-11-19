@@ -46,28 +46,32 @@ class DoclingProcessor extends FileProcessor {
      * Verarbeitet einen Job.
      * @param {object} job
      * @param {AbortSignal} [signal]
+     * @param {(line: string) => void} [progress]
      * @returns {Promise<object>}
      */
-    async process(job, signal) {
-        if (job.event === 'delete') return this.processDelete(job, signal);
-        return this.processUpsert(job, signal);
+    async process(job, signal, progress) {
+        if (job.event === 'delete') return this.processDelete(job, signal, progress);
+        return this.processUpsert(job, signal, progress);
     }
 
     /** delete: Chunks aus Qdrant entfernen + Tombstone (geerbt). */
-    async processDelete(job, signal) {
+    async processDelete(job, signal, progress) {
+        progress?.('Chunks aus Qdrant entfernen…');
         await this.qdrant.deleteBySource(job.path);
         const entry = await this.markDeleted(job);
+        progress?.('Tombstone gesetzt');
         this.logger.log(this.label, 'File gelöscht (Docling)', { path: job.path });
         return { status: 'deleted', path: job.path, event: job.event, size: null, entry };
     }
 
     /** create/modify: chunk → Orphan-Schutz → embed+upsert → Store-Update. */
-    async processUpsert(job, signal) {
+    async processUpsert(job, signal, progress) {
+        progress?.(`Starte Verarbeitung (${job.event})`);
         let stats;
         try {
             stats = await stat(this.resolvePath(job));
         } catch (err) {
-            if (err.code === 'ENOENT') return this.processDelete(job, signal);
+            if (err.code === 'ENOENT') return this.processDelete(job, signal, progress);
             throw err;
         }
 
@@ -80,6 +84,7 @@ class DoclingProcessor extends FileProcessor {
                 status: 'skipped',
                 lastEvent: job.event
             });
+            progress?.('File übersprungen (zu groß)');
             this.logger.log(this.label, 'File übersprungen (zu groß)', {
                 path: job.path,
                 size: stats.size,
@@ -88,16 +93,24 @@ class DoclingProcessor extends FileProcessor {
             return { status: 'skipped', path: job.path, event: job.event, size: stats.size, entry };
         }
 
+        progress?.('Chunking (docling)…');
         const chunks = await this.chunk(job, signal);
+        progress?.(`${chunks.length} Chunks gefunden`);
         await this.qdrant.deleteBySource(job.path);
 
-        for (const chunk of chunks) {
+        for (let i = 0; i < chunks.length; i++) {
             if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-            const vector = await this.embeddings.embed(chunk.text);
+            progress?.(`Embedding Chunk ${i + 1}/${chunks.length}…`);
+            const vector = await this.embeddings.embed(chunks[i].text);
+            progress?.(`Upsert Chunk ${i + 1}/${chunks.length}…`);
             await this.qdrant.upsert(vector, {
-                text: chunk.text,
+                text: chunks[i].text,
                 path: job.path,
-                source: job.path
+                source: job.path,
+                headings: chunks[i].headings,
+                page_numbers: chunks[i].page_numbers,
+                chunk_index: chunks[i].chunk_index,
+                captions: chunks[i].captions
             });
         }
 
@@ -110,6 +123,7 @@ class DoclingProcessor extends FileProcessor {
             processedAt: new Date().toISOString(),
             chunkCount: chunks.length
         });
+        progress?.('Fertig');
         this.logger.log(this.label, 'File verarbeitet (Docling)', { path: job.path, event: job.event, size: stats.size, chunks: chunks.length });
         return { status: 'done', path: job.path, event: job.event, size: stats.size, entry };
     }
